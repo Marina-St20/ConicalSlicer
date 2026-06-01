@@ -1,0 +1,100 @@
+# =====================
+# Python
+# =====================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# =====================
+# IDEs
+# =====================
+
+.vscode/
+.idea/
+
+# =====================
+# Operating system files
+# =====================
+
+.DS_Store
+Thumbs.db
+
+# =====================
+# Build artifacts
+# =====================
+
+build/
+dist/
+*.egg-info/
+
+# =====================
+# Logs
+# =====================
+
+*.log
+
+# =====================
+# Large 3D model files
+# =====================
+
+*.stl
+*.STL
+*.obj
+*.OBJ
+*.3mf
+*.3MF
+
+# =====================
+# Generated GCode
+# =====================
+
+*.gcode
+*.GCODE
+*.gco
+
+# =====================
+# Jupyter
+# =====================
+
+.ipynb_checkpoints/
+
+# =====================
+# Testing
+# =====================
+
+.pytest_cache/
+.coverage
+
+# =====================
+# Output directories
+# Keep folder structure
+# Ignore contents
+# =====================
+
+DeformedGcode/*
+!DeformedGcode/.gitkeep
+
+SlicedTransformedGcode/*
+!SlicedTransformedGcode/.gitkeep
+
+TransformedFiles/*
+!TransformedFiles/.gitkeep
+
+# Temporary exports
+*.zip
+*.7z
+*.rar
+
+# Python cache
+*.pyc
+*.pyo
+
+# Backup files
+*.bak
+*.tmp
