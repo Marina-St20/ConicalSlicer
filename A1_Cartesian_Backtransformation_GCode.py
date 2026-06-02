@@ -5,7 +5,7 @@ import time
 import zipfile
 import io
 
-FIXED_HEADER_PATH = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\A1_HEADERBLOCKSTART.txt"
+FIXED_HEADER_PATH = r"C:\Users\brint\OneDrive\Documents\GitHub\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
 
 def read_gcode_from_file(path):
     """Read gcode from either a plain .gcode file or a .ufp package."""
@@ -328,8 +328,8 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\SlicedTransformedGcode\A1_Dogbone_100IF.gcode"
-dir_backtransformed = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\DeformedGcode"
+file_path           = r"C:\Users\brint\OneDrive\Documents\GitHub\ConicalSlicer\3_Sliced\dogbone1.gcode"
+dir_backtransformed = r"C:\Users\brint\OneDrive\Documents\GitHub\ConicalSlicer\4_Output"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
@@ -344,7 +344,7 @@ override_bed_center_y = 128.0
 
 delta_x  = 0.0   # XY shift after backtransform (leave 0 for Bambu)
 delta_y  = 0.0
-z_height = 0.2   # desired minimum Z = first layer height
+z_height = 0.3   # desired minimum Z = first layer height
 
 fixed_extrusion = 0.03   # constant E value applied to every extrusion move
 
