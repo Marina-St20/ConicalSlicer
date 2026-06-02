@@ -49,7 +49,8 @@ def detect_bed_center(data):
     """
     pattern_X = r'X([-0-9]+[.]?[0-9]*)'
     pattern_Y = r'Y([-0-9]+[.]?[0-9]*)'
-    pattern_E = r'E[-0-9]+[.]?[0-9]*'
+    #pattern_E = r'E[-0-9]+[.]?[0-9]*'
+    pattern_E = r'E-?\d*\.?\d+'
     pattern_G = r'\AG[01] '
 
     x_coords, y_coords = [], []
