@@ -5,7 +5,7 @@ import time
 import zipfile
 import io
 
-FIXED_HEADER_PATH = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\A1_HEADERBLOCKSTART.txt"
+FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
 
 def read_gcode_from_file(path):
     """Read gcode from either a plain .gcode file or a .ufp package."""
@@ -328,12 +328,12 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\SlicedTransformedGcode\A1_Dogbone_100IF.gcode"
-dir_backtransformed = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\DeformedGcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Test_ASTM_Dogbone_outward_5deg_transformed_PLA_22m13s.gcode"
+dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  = 10.0         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  = 5         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
