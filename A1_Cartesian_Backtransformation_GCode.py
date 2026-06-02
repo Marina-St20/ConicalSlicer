@@ -185,6 +185,7 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
             single_row = re.sub(pattern_Y, 'Y' + str(round(y_vals[j+1], 3)), single_row)
             single_row = insert_Z(single_row, z_vals[j+1])
             if e_match is not None:
+                # print("Replacing:", e_match.group(0))
                 single_row = re.sub(pattern_E, e_replacement, single_row)
             replacement_rows += single_row
 
