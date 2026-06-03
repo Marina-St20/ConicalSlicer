@@ -7,6 +7,8 @@ import io
 
 FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
 
+NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
+
 def read_gcode_from_file(path):
     """Read gcode from either a plain .gcode file or a .ufp package."""
     if path.endswith('.ufp'):
@@ -49,11 +51,15 @@ def detect_bed_center(data):
     ^Because travel moves may go outside of the print area
     """
     #Find X, Y, E, G patterns via regex matching
-    pattern_X = r'X([-0-9]+[.]?[0-9]*)'
-    pattern_Y = r'Y([-0-9]+[.]?[0-9]*)'
+    #pattern_X = r'X([-0-9]+[.]?[0-9]*)'
+    #pattern_Y = r'Y([-0-9]+[.]?[0-9]*)'
     #pattern_E = r'E[-0-9]+[.]?[0-9]*'
-    pattern_E = r'E-?\d*\.?\d+'
+    #pattern_E = r'E-?\d*\.?\d+'
     pattern_G = r'\AG[01] '
+    pattern_X = rf'X{NUM}'
+    pattern_Y = rf'Y{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_E = rf'E{NUM}'
 
     x_coords, y_coords = [], [] #store x,y coordinates
     for row in data: #loop through g-code lines, if line contains G0/G1 and E, extract X/Y and add to list
@@ -77,9 +83,12 @@ def detect_bed_center(data):
 
 
 def insert_Z(row, z_value):
-    pattern_X = r'X[-0-9]+[.]?[0-9]*'
-    pattern_Y = r'Y[-0-9]+[.]?[0-9]*'
-    pattern_Z = r'Z[-0-9]+[.]?[0-9]*'
+    #pattern_X = r'X[-0-9]+[.]?[0-9]*'
+    #pattern_Y = r'Y[-0-9]+[.]?[0-9]*'
+    #pattern_Z = r'Z[-0-9]+[.]?[0-9]*'
+    pattern_X = rf'X{NUM}'
+    pattern_Y = rf'Y{NUM}'
+    pattern_Z = rf'Z{NUM}'
     match_x = re.search(pattern_X, row)
     match_y = re.search(pattern_Y, row)
     match_z = re.search(pattern_Z, row)
@@ -123,11 +132,15 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
     tan_a = np.tan(cone_angle_rad)
     c = 1 if cone_type == 'outward' else -1
 
-    pattern_X = r'X[-0-9]+[.]?[0-9]*'
-    pattern_Y = r'Y[-0-9]+[.]?[0-9]*'
-    pattern_Z = r'Z[-0-9]+[.]?[0-9]*'
-    pattern_E = r'E[-0-9]+[.]?[0-9]*'
+    # pattern_X = r'X[-0-9]+[.]?[0-9]*'
+    # pattern_Y = r'Y[-0-9]+[.]?[0-9]*'
+    # pattern_Z = r'Z[-0-9]+[.]?[0-9]*'
+    # pattern_E = r'E[-0-9]+[.]?[0-9]*'
     pattern_G = r'\AG[01] '
+    pattern_X = rf'X{NUM}'
+    pattern_Y = rf'Y{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_E = rf'E{NUM}'
 
     e_replacement = f'E{fixed_e}'
 
@@ -213,11 +226,15 @@ def translate_data(data, translate_x, translate_y, z_desired):
     Only extrusion moves AFTER the first '; CHANGE_LAYER' or '; Z_HEIGHT:'
     comment are considered when finding z_min, to exclude startup/purge moves.
     """
-    pattern_X = r'X[-0-9]+[.]?[0-9]*'
-    pattern_Y = r'Y[-0-9]+[.]?[0-9]*'
-    pattern_Z = r'Z[-0-9]+[.]?[0-9]*'
-    pattern_E = r'E[-0-9]+[.]?[0-9]*'
+    # pattern_X = r'X[-0-9]+[.]?[0-9]*'
+    # pattern_Y = r'Y[-0-9]+[.]?[0-9]*'
+    # pattern_Z = r'Z[-0-9]+[.]?[0-9]*'
+    # pattern_E = r'E[-0-9]+[.]?[0-9]*'
     pattern_G = r'\AG[01] '
+    pattern_X = rf'X{NUM}'
+    pattern_Y = rf'Y{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_E = rf'E{NUM}'
 
     # First pass: find minimum Z among extrusion moves AFTER layer 1 begins
     z_min = None
@@ -336,7 +353,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Test7_Clamp_ASTM_Dogbone_outward_5deg_transformed_PLA_22m10s.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Test10_Regex_ASTM_Dogbone_outward_5deg_transformed_PLA_22m10s.gcode"
 dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
