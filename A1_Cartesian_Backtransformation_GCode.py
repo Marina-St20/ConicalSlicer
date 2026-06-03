@@ -95,6 +95,15 @@ def insert_Z(row, z_value):
             row_new = 'Z' + str(round(z_value, 3)) + ' ' + row
     return row_new
 
+def cone_fade(z_layer, fade_start=0.6, fade_end=2.0):
+    """
+    Keep low layers flat, then gradually ramp into full conical correction.
+    """
+    if z_layer <= fade_start:
+        return 0.0
+    if z_layer >= fade_end:
+        return 1.0
+    return (z_layer - fade_start) / (fade_end - fade_start)
 
 def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_center_x, bed_center_y,
                        fixed_e=0.03):
@@ -180,7 +189,10 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
 
         # Compute backtransformed Z by removing the cone offset at each segment point
         r_vals = np.sqrt((x_vals - bed_center_x)**2 + (y_vals - bed_center_y)**2)
-        z_vals = z_layer - c * tan_a * r_vals
+        #z_vals = z_layer - c * tan_a * r_vals
+        fade = cone_fade(z_layer, fade_start=0.6, fade_end=2.0)
+        z_vals = z_layer - fade * c * tan_a * r_vals
+
 
         replacement_rows = ''
         for j in range(num_segm):
@@ -336,7 +348,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Test7_Clamp_ASTM_Dogbone_outward_5deg_transformed_PLA_22m10s.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Test9_ConeFade_ASTM_Dogbone_outward_5deg_transformed_PLA_22m8s.gcode"
 dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
