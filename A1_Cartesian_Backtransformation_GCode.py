@@ -46,26 +46,29 @@ def detect_bed_center(data):
     """
     Auto-detect the center of the print from the G-code bounding box.
     Only considers extrusion moves (lines with both E and X/Y).
+    ^Because travel moves may go outside of the print area
     """
+    #Find X, Y, E, G patterns via regex matching
     pattern_X = r'X([-0-9]+[.]?[0-9]*)'
     pattern_Y = r'Y([-0-9]+[.]?[0-9]*)'
     #pattern_E = r'E[-0-9]+[.]?[0-9]*'
     pattern_E = r'E-?\d*\.?\d+'
     pattern_G = r'\AG[01] '
 
-    x_coords, y_coords = [], []
-    for row in data:
-        if re.search(pattern_G, row) and re.search(pattern_E, row):
-            mx = re.search(pattern_X, row)
-            my = re.search(pattern_Y, row)
+    x_coords, y_coords = [], [] #store x,y coordinates
+    for row in data: #loop through g-code lines, if line contains G0/G1 and E, extract X/Y and add to list
+        if re.search(pattern_G, row) and re.search(pattern_E, row): #ex. G1 X10 Y20 E0.5 (ONLY extrusion/printing moves)
+            mx = re.search(pattern_X, row) #extract X
+            my = re.search(pattern_Y, row) #extract Y
             if mx:
-                x_coords.append(float(mx.group(1)))
+                x_coords.append(float(mx.group(1))) #gets string and converts to float number
             if my:
-                y_coords.append(float(my.group(1)))
+                y_coords.append(float(my.group(1))) #same thing for y
 
-    if not x_coords or not y_coords:
+    if not x_coords or not y_coords: #there's no x or y coords at all
         raise ValueError("Could not detect print bounding box from G-code.")
 
+    # get the min and max coords of x and y and calculate the center of x and y
     cx = (min(x_coords) + max(x_coords)) / 2
     cy = (min(y_coords) + max(y_coords)) / 2
     print(f"  X range: {min(x_coords):.1f} to {max(x_coords):.1f}, center: {cx:.1f}")
@@ -96,7 +99,7 @@ def insert_Z(row, z_value):
 def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_center_x, bed_center_y,
                        fixed_e=0.03):
     """
-    Backtransform G-Code for a Bambu Lab Cartesian printer (A1 mini).
+    Backtransform G-Code for a Bambu Lab Cartesian printer (A1).
 
     Forward transform (applied to STL centered at origin, then placed at bed center):
         x' = x / cos(a)
@@ -339,8 +342,7 @@ cone_angle_degrees  = 5         # must match Cartesian_Transformation_STL.py exa
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
-# Bambu A1 mini bed center. Set to None to auto-detect from G-code bounding box.
-# Manual override recommended for reliability: A1 mini bed is 180x180, center = (90, 90)
+# Bambu A1 bed center. Set to None to auto-detect from G-code bounding box.
 override_bed_center_x = 128.0
 override_bed_center_y = 128.0
 
