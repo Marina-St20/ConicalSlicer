@@ -599,7 +599,7 @@ M620 S0A   ; switch material if AMS exist
     G1 X-48.2 F3000
     M400
 
-    M620.1 E F299.339 T240
+    M620.1 E F299.339 T215
     M109 S215 ;set nozzle to common flush temp
     M106 P1 S0
     G92 E0
@@ -663,7 +663,7 @@ M1002 judge_flag extrude_cali_flag
 M622 J1
     M1002 gcode_claim_action : 8
 
-    M109 S220
+    M109 S210
     G1 E10 F300
     M983 F5 A0.3 H0.4; cali dynamic extrusion compensation
 
