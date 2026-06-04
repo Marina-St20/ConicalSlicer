@@ -106,7 +106,7 @@ def insert_Z(row, z_value):
 
 
 def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_center_x, bed_center_y,
-                       fixed_e=0.0275):
+                       fixed_e=0.0275, use_fixed_e=False):
     """
     Backtransform G-Code for a Bambu Lab Cartesian printer (A1).
 
@@ -163,8 +163,15 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
 
         if x_match is None and y_match is None and z_match is None:
             # G-code move with no XYZ — only replace E if present
-            if e_match is not None:
-                new_data.append(re.sub(pattern_E, e_replacement, row))
+            # if e_match is not None:
+            #     new_data.append(re.sub(pattern_E, e_replacement, row))
+            # else:
+            #     new_data.append(row)
+            # continue
+            # E-only / retract / prime moves.
+            # Usually leave these unchanged unless you specifically want fixed E everywhere.
+            if e_match is not None and use_fixed_e:
+                new_data.append(re.sub(pattern_E, e_replacement, row, count=1))
             else:
                 new_data.append(row)
             continue
@@ -420,6 +427,7 @@ delta_y  = 0.0
 z_height = 0.2   # desired minimum Z = first layer height
 
 fixed_extrusion = 0.0275  # constant E value applied to every extrusion move
+use_fixed_extrusion = False  # False = preserve slicer E values, True = force fixed E
 
 # ---------------------------------------------------------------
 # Run
