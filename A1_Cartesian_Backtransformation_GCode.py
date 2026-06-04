@@ -296,6 +296,51 @@ def translate_data(data, translate_x, translate_y, z_desired):
 
     return new_data
 
+def remove_unwanted_blocks(data):
+    """
+    Remove non-model utility blocks from Bambu/Orca G-code.
+
+    Currently removes:
+      - ; SKIPPABLE_START ... ; SKIPPABLE_END blocks
+      - especially timelapse/safe-position chunks
+
+    Keeps:
+      - real print moves
+      - temperatures
+      - fan commands
+      - homing/start/end G-code
+      - layer comments
+    """
+    cleaned = []
+    in_skippable = False
+    removed_lines = 0
+    removed_blocks = 0
+    current_skiptype = None
+
+    for row in data:
+        if '; SKIPPABLE_START' in row:
+            in_skippable = True
+            removed_blocks += 1
+            removed_lines += 1
+            current_skiptype = None
+            continue
+
+        if in_skippable:
+            removed_lines += 1
+
+            if '; SKIPTYPE:' in row:
+                current_skiptype = row.strip()
+
+            if '; SKIPPABLE_END' in row:
+                in_skippable = False
+                current_skiptype = None
+
+            continue
+
+        cleaned.append(row)
+
+    print(f"  Removed {removed_blocks} skippable block(s), {removed_lines} total line(s).")
+    return cleaned
 
 def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_length,
                        x_shift, y_shift, z_desired, fixed_header_path,
@@ -312,6 +357,10 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 
     print("Replacing header block with fixed header...")
     body = strip_original_header(data)
+
+    print("Removing timelapse/skippable utility blocks...")
+    body = remove_unwanted_blocks(body)
+
     fixed_header = read_fixed_header(fixed_header_path)
 
     if bed_center_x is None or bed_center_y is None:
