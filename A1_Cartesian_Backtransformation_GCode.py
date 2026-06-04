@@ -193,7 +193,8 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
 
         # Segment long moves for smooth Z interpolation
         dist_transformed = np.linalg.norm([x_new - x_old, y_new - y_old])
-        num_segm = max(1, int(dist_transformed // maximal_length + 1))
+        #num_segm = max(1, int(dist_transformed // maximal_length + 1)) # old
+        num_segm = max(1, int(np.ceil(dist_transformed / maximal_length)))  # fixed
 
         x_vals = np.linspace(x_old_bt, x_new_bt, num_segm + 1)
         y_vals = np.linspace(y_old_bt, y_new_bt, num_segm + 1)
@@ -210,7 +211,15 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
             single_row = insert_Z(single_row, z_vals[j+1])
             if e_match is not None:
                 # print("Replacing:", e_match.group(0))
-                single_row = re.sub(pattern_E, e_replacement, single_row)
+                # single_row = re.sub(pattern_E, e_replacement, single_row)
+                if use_fixed_e:
+                    # Old behavior: force every segment to the same fixed E.
+                    single_row = re.sub(pattern_E, e_replacement, single_row, count=1)
+                else:
+                    # New behavior: preserve original relative extrusion total.
+                    e_original = float(e_match.group(0).replace('E', ''))
+                    e_segment = e_original / num_segm
+                    single_row = re.sub(pattern_E, f'E{e_segment:.5f}', single_row, count=1)
             replacement_rows += single_row
 
         if update_x:
@@ -351,7 +360,7 @@ def remove_unwanted_blocks(data):
 
 def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_length,
                        x_shift, y_shift, z_desired, fixed_header_path,
-                       bed_center_x=None, bed_center_y=None, fixed_e=0.0275):
+                       bed_center_x=None, bed_center_y=None, fixed_e=0.0275, use_fixed_e=False):
     """
     Full pipeline:
       read -> strip original header -> prepend fixed header
@@ -376,9 +385,25 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
     else:
         print(f"Using manually specified bed center: ({bed_center_x}, {bed_center_y})")
 
-    print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, fixed E={fixed_e}...")
-    data_bt = backtransform_data(body, cone_type, cone_angle_deg, maximal_length,
-                                 bed_center_x, bed_center_y, fixed_e=fixed_e)
+    #print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, fixed E={fixed_e}...")
+    #data_bt = backtransform_data(body, cone_type, cone_angle_deg, maximal_length,
+    #                             bed_center_x, bed_center_y, fixed_e=fixed_e)
+
+    if use_fixed_e:
+        print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, fixed E={fixed_e}...")
+    else:
+        print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, preserving original relative E...")
+
+    data_bt = backtransform_data(
+        body,
+        cone_type,
+        cone_angle_deg,
+        maximal_length,
+        bed_center_x,
+        bed_center_y,
+        fixed_e=fixed_e,
+        use_fixed_e=use_fixed_e
+    )
 
     data_bt_string = ''.join(data_bt)
     data_bt = [row + ' \n' for row in data_bt_string.split('\n')]
@@ -446,4 +471,5 @@ backtransform_file(
     bed_center_x      = override_bed_center_x,
     bed_center_y      = override_bed_center_y,
     fixed_e           = fixed_extrusion,
+    use_fixed_e       = use_fixed_extrusion,
 )
