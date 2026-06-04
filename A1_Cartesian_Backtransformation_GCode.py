@@ -106,7 +106,7 @@ def insert_Z(row, z_value):
 
 
 def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_center_x, bed_center_y,
-                       fixed_e=0.03):
+                       fixed_e=0.015):
     """
     Backtransform G-Code for a Bambu Lab Cartesian printer (A1).
 
@@ -299,7 +299,7 @@ def translate_data(data, translate_x, translate_y, z_desired):
 
 def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_length,
                        x_shift, y_shift, z_desired, fixed_header_path,
-                       bed_center_x=None, bed_center_y=None, fixed_e=0.03):
+                       bed_center_x=None, bed_center_y=None, fixed_e=0.015):
     """
     Full pipeline:
       read -> strip original header -> prepend fixed header
@@ -353,7 +353,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Test10_Regex_ASTM_Dogbone_outward_5deg_transformed_PLA_22m10s.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Test11_Extrusion_ASTM_Dogbone_outward_5deg_transformed_PLA_22m10s.gcode"
 dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
@@ -370,7 +370,7 @@ delta_x  = 0.0   # XY shift after backtransform (leave 0 for Bambu)
 delta_y  = 0.0
 z_height = 0.2   # desired minimum Z = first layer height
 
-fixed_extrusion = 0.03   # constant E value applied to every extrusion move
+fixed_extrusion = 0.015   # constant E value applied to every extrusion move
 
 # ---------------------------------------------------------------
 # Run
