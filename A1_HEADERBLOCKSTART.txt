@@ -157,8 +157,8 @@
 ; hole_limit_max = 0.22,0.22,0.22,0.22
 ; hole_limit_min = 0.088,0.088,0.088,0.088
 ; host_type = octoprint
-; hot_plate_temp = 65,65,65,65
-; hot_plate_temp_initial_layer = 65,65,65,65
+; hot_plate_temp = 50,50,50,50
+; hot_plate_temp_initial_layer = 50,50,50,50
 ; hotend_cooling_rate = 2
 ; hotend_heating_rate = 2
 ; impact_strength_z = 10,10,10,10
@@ -245,9 +245,9 @@
 ; nozzle_diameter = 0.4
 ; nozzle_flush_dataset = 0
 ; nozzle_height = 4.76
-; nozzle_temperature = 220,220,220,220
-; nozzle_temperature_initial_layer = 220,220,220,220
-; nozzle_temperature_range_high = 240,240,240,240
+; nozzle_temperature = 210,210,210,210
+; nozzle_temperature_initial_layer = 210,210,210,210
+; nozzle_temperature_range_high = 215,215,215,215
 ; nozzle_temperature_range_low = 190,190,190,190
 ; nozzle_type = stainless_steel
 ; nozzle_volume = 92
@@ -416,8 +416,8 @@
 ; symmetric_infill_y_axis = 0
 ; temperature_vitrification = 45,45,45,45
 ; template_custom_gcode = 
-; textured_plate_temp = 65,65,65,65
-; textured_plate_temp_initial_layer = 65,65,65,65
+; textured_plate_temp = 50,50,50,50
+; textured_plate_temp_initial_layer = 50,50,50,50
 ; thick_bridges = 0
 ; thumbnail_size = 50x50
 ; time_lapse_gcode = ;===================== date: 20250206 =====================\n{if !spiral_mode && print_sequence != "by object"}\n; don't support timelapse gcode in spiral_mode and by object sequence for I3 structure printer\n; SKIPPABLE_START\n; SKIPTYPE: timelapse\nM622.1 S1 ; for prev firmware, default turned on\nM1002 judge_flag timelapse_record_flag\nM622 J1\nG92 E0\nG1 Z{max_layer_z + 0.4}\nG1 X0 Y{first_layer_center_no_wipe_tower[1]} F18000 ; move to safe pos\nG1 X-48.2 F3000 ; move to safe pos\nM400\nM1004 S5 P1  ; external shutter\nM400 P300\nM971 S11 C11 O0\nG92 E0\nG1 X0 F18000\nM623\n\n; SKIPTYPE: head_wrap_detect\nM622.1 S1\nM1002 judge_flag g39_3rd_layer_detect_flag\nM622 J1\n    ; enable nozzle clog detect at 3rd layer\n    {if layer_num == 2}\n      M400\n      G90\n      M83\n      M204 S5000\n      G0 Z2 F4000\n      G0 X261 Y250 F20000\n      M400 P200\n      G39 S1\n      G0 Z2 F4000\n    {endif}\n\n\n    M622.1 S1\n    M1002 judge_flag g39_detection_flag\n    M622 J1\n      {if !in_head_wrap_detect_zone}\n        M622.1 S0\n        M1002 judge_flag g39_mass_exceed_flag\n        M622 J1\n        {if layer_num > 2}\n            G392 S0\n            M400\n            G90\n            M83\n            M204 S5000\n            G0 Z{max_layer_z + 0.4} F4000\n            G39.3 S1\n            G0 Z{max_layer_z + 0.4} F4000\n            G392 S0\n          {endif}\n        M623\n    {endif}\n    M623\nM623\n; SKIPPABLE_END\n{endif}\n
@@ -490,7 +490,7 @@ M9833.2
 M1002 gcode_claim_action : 2
 M1002 set_filament_type:PLA
 M104 S140
-M140 S65
+M140 S50
 
 ;=====start printer sound ===================
 M17
@@ -563,7 +563,7 @@ G1 E-0.5 F30
 M17 D
 
 G28 Z P0 T140; home z with low precision,permit 300deg temperature
-M104 S220
+M104 S210
 
 M1002 judge_flag build_plate_detect_flag
 M622 S1
@@ -592,15 +592,15 @@ M620 S0A   ; switch material if AMS exist
     M1002 gcode_claim_action : 4
     M400
     M1002 set_filament_type:UNKNOWN
-    M109 S220
-    M104 S250
+    M109 S210
+    M104 S215
     M400
     T0
     G1 X-48.2 F3000
     M400
 
     M620.1 E F299.339 T240
-    M109 S250 ;set nozzle to common flush temp
+    M109 S215 ;set nozzle to common flush temp
     M106 P1 S0
     G92 E0
     G1 E50 F200
@@ -608,14 +608,14 @@ M620 S0A   ; switch material if AMS exist
     M1002 set_filament_type:PLA
 M621 S0A
 
-M109 S240 H300
+M109 S215 H300
 G92 E0
 G1 E50 F200 ; lower extrusion speed to avoid clog
 M400
 M106 P1 S178
 G92 E0
 G1 E5 F200
-M104 S220
+M104 S210
 G92 E0
 M73 P2 R27
 G1 E-0.5 F300
@@ -962,7 +962,7 @@ G1 Z5 F1200
 G1 X0 Y0 F30000
 G29.2 S1 ; turn on ABL
 
-M190 S65; ensure bed temp
+M190 S50; ensure bed temp
 M109 S140
 M106 S0 ; turn off fan , too noisy
 
@@ -993,7 +993,7 @@ G1 Z0.300 F1200
 M400
 G2814 Z0.32
 
-M104 S220 ; prepare to print
+M104 S210 ; prepare to print
 
 ;===== nozzle load line ===============================
 ;G90
@@ -1002,7 +1002,7 @@ M104 S220 ; prepare to print
 ;G1 X88 Y-0.5 F20000
 ;G1 Z0.3 F1200
 
-;M109 S220
+;M109 S210
 
 ;G1 E2 F300
 ;G1 X168 E4.989 F6000
@@ -1017,7 +1017,7 @@ M400
     G90
     M83
 
-    M109 S220
+    M109 S210
     G0 X128 E8  F720
     G0 X133 E.3742  F1200
     G0 X138 E.3742  F4800
