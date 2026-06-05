@@ -328,7 +328,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\SlicedTransformedGcode\ASTM_Dogbone_inward_5deg_transformed.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Test11-8_Infill100_Dogbone_outward_5deg_transformed_PLA_24m13s.gcode"
 dir_backtransformed = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
