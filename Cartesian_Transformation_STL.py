@@ -133,7 +133,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # ---------------------------------------------------------------
 
 #file_path = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\ASTM_Dogbone.stl"
-file_path = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\Test 13-3 5_degrees Vertical Standing Dogbone.stl"
+file_path = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\Test13-3 5_degrees Vertical Standing Dogbone.stl"
 dir_transformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
 number_iterations = 3                # mesh refinement iterations
