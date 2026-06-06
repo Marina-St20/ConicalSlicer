@@ -65,7 +65,7 @@
 ; draft_shield = disabled
 ; during_print_exhaust_fan_speed = 70,70,70,70
 ; elefant_foot_compensation = 0.075
-; enable_arc_fitting = 1
+; enable_arc_fitting = 0
 ; enable_circle_compensation = 0
 ; enable_height_slowdown = 0
 ; enable_long_retraction_when_cut = 2
@@ -104,7 +104,7 @@
 ; filament_diameter = 1.75,1.75,1.75,1.75
 ; filament_end_gcode = "; filament end gcode \n\n";"; filament end gcode \n\n";"; filament end gcode \n\n";"; filament end gcode \n\n"
 ; filament_extruder_variant = "Direct Drive Standard";"Direct Drive Standard";"Direct Drive Standard";"Direct Drive Standard"
-; filament_flow_ratio = 0.98,0.98,0.98,0.98
+; filament_flow_ratio = 1,1,1,1
 ; filament_flush_temp = 0,0,0,0
 ; filament_flush_volumetric_speed = 0,0,0,0
 ; filament_ids = GFL99;GFL99;GFL99;GFL99
@@ -373,7 +373,7 @@
 ; sparse_infill_acceleration = 100%
 ; sparse_infill_anchor = 400%
 ; sparse_infill_anchor_max = 20
-; sparse_infill_density = 15%
+; sparse_infill_density = 100%
 ; sparse_infill_filament = 1
 ; sparse_infill_line_width = 0.45
 ; sparse_infill_pattern = grid
