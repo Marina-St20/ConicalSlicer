@@ -10,6 +10,24 @@ FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\Coni
 
 NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 
+def square_pyramid_rho(dx, dy, rotation_deg=0.0):
+    """
+    Square pyramid height-field distance.
+
+    dx, dy are coordinates relative to the pyramid center.
+    rotation_deg rotates the square/pyramid orientation in XY.
+    """
+    theta = np.deg2rad(rotation_deg)
+
+    # Rotate coordinates
+    x_rot = dx * np.cos(theta) + dy * np.sin(theta)
+    y_rot = -dx * np.sin(theta) + dy * np.cos(theta)
+
+    # Square pyramid "radius"
+    rho = np.maximum(np.abs(x_rot), np.abs(y_rot))
+
+    return rho
+
 def read_gcode_from_file(path):
     """Read gcode from either a plain .gcode file or a .ufp package."""
     if path.endswith('.ufp'):
@@ -201,8 +219,16 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
         y_vals = np.linspace(y_old_bt, y_new_bt, num_segm + 1)
 
         # Compute backtransformed Z by removing the cone offset at each segment point
-        r_vals = np.sqrt((x_vals - bed_center_x)**2 + (y_vals - bed_center_y)**2)
-        z_vals = z_layer - c * tan_a * r_vals
+        # r_vals = np.sqrt((x_vals - bed_center_x)**2 + (y_vals - bed_center_y)**2)
+        # z_vals = z_layer - c * tan_a * r_vals
+
+        # Compute backtransformed Z by removing the square-pyramid offset at each segment point
+        dx_vals = x_vals - bed_center_x
+        dy_vals = y_vals - bed_center_y
+
+        rho_vals = square_pyramid_rho(dx_vals, dy_vals, rotation_deg=0.0)
+
+        z_vals = z_layer - c * tan_a * rho_vals
 
         replacement_rows = ''
         for j in range(num_segm):
@@ -421,7 +447,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"{name}_bt_{cone_type}_{cone_angle_deg}deg.gcode"
+    file_name = f"{name}_bt_square_pyramid_{cone_type}_{cone_angle_deg}deg.gcode"
     output_path = os.path.join(output_dir, file_name)
 
     with open(output_path, 'w+', encoding='utf-8', newline='\n') as f_out:
@@ -435,12 +461,12 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\smug_goat_outward_7.5deg_transformed_PLA_1h52m.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Flat Normal Dogbone_square_pyramid_outward_5deg_transformed_PLA_20m33s.gcode"
 dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  7.5         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  5         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
