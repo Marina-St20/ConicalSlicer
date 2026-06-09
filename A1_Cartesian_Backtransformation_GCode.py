@@ -10,7 +10,7 @@ FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\Coni
 
 NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 
-def triangular_pyramid_rho(dx, dy, rotation_deg=0.0):
+def triangular_pyramid_rho(dx, dy, rotation_deg=30.0):
     """
     Triangular pyramid height-field distance.
 
@@ -34,7 +34,7 @@ def triangular_pyramid_rho(dx, dy, rotation_deg=0.0):
 
     return rho
 
-def square_pyramid_rho(dx, dy, rotation_deg=0.0):
+def square_pyramid_rho(dx, dy, rotation_deg=30.0):
     """
     Square pyramid height-field distance.
 
@@ -254,7 +254,7 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
 
         #z_vals = z_layer - c * tan_a * rho_vals
 
-        rho_vals = triangular_pyramid_rho(dx_vals, dy_vals, rotation_deg=0.0)
+        rho_vals = triangular_pyramid_rho(dx_vals, dy_vals, rotation_deg=30.0)
 
         z_vals = z_layer - c * tan_a * rho_vals
 
@@ -489,12 +489,12 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\XYZ_quality_cube_correct_orientation_triangular_pyramid_outward_20deg_transformed_PLA_26m38s.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\hope_this_works_Flat Normal Dogbone_triangular_pyramid_outward_10deg_transformed_PLA_27m27s.gcode"
 dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  20         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  10         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
