@@ -3,6 +3,30 @@ from stl import mesh
 import time
 import os
 
+def triangular_pyramid_rho(dx, dy, rotation_deg=0.0):
+    """
+    Triangular pyramid height-field distance.
+
+    dx, dy are coordinates relative to the pyramid center.
+    rotation_deg rotates the triangular pyramid orientation in XY.
+
+    This creates 3 planar faces meeting at the center/apex.
+    """
+    theta = np.deg2rad(rotation_deg)
+
+    # Three directions spaced 120 degrees apart
+    a0 = theta
+    a1 = theta + 2.0 * np.pi / 3.0
+    a2 = theta + 4.0 * np.pi / 3.0
+
+    p0 = dx * np.cos(a0) + dy * np.sin(a0)
+    p1 = dx * np.cos(a1) + dy * np.sin(a1)
+    p2 = dx * np.cos(a2) + dy * np.sin(a2)
+
+    rho = np.maximum.reduce([p0, p1, p2])
+
+    return rho
+
 def square_pyramid_rho(dx, dy, rotation_deg=0.0):
     """
     Square pyramid height-field distance.
@@ -110,6 +134,35 @@ def transformation_square_pyramid(points, cone_type, cone_angle_deg, rotation_de
     points_transformed = list(map(T, points[:, 0], points[:, 1], points[:, 2]))
     return np.array(points_transformed)
 
+def transformation_triangular_pyramid(points, cone_type, cone_angle_deg, rotation_deg=0.0):
+    """
+    Cartesian-printer-friendly triangular pyramidal transformation.
+
+    Forward transform:
+        x' = scale * x
+        y' = scale * y
+        z' = z + c * tan(angle) * triangular_pyramid_rho(x, y)
+
+    where c = +1 for outward, -1 for inward.
+    """
+    cone_angle_rad = np.radians(cone_angle_deg)
+    scale = 1.0 / np.cos(cone_angle_rad)
+    tan_a = np.tan(cone_angle_rad)
+
+    if cone_type == 'outward':
+        c = 1
+    elif cone_type == 'inward':
+        c = -1
+    else:
+        raise ValueError('{} is not an admissible type for the transformation'.format(cone_type))
+
+    def T(x, y, z):
+        rho = triangular_pyramid_rho(x, y, rotation_deg=rotation_deg)
+        return np.array([scale * x, scale * y, z + c * tan_a * rho])
+
+    points_transformed = list(map(T, points[:, 0], points[:, 1], points[:, 2]))
+    return np.array(points_transformed)
+
 def center_model(vectors_refined):
     vectors_refined = vectors_refined.copy()
 
@@ -157,7 +210,13 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     vectors_refined = center_model(vectors_refined)
 
     #vectors_transformed = transformation_cone(vectors_refined, cone_type, cone_angle_deg)
-    vectors_transformed = transformation_square_pyramid(
+    # vectors_transformed = transformation_square_pyramid(
+    #     vectors_refined,
+    #     cone_type,
+    #     cone_angle_deg,
+    #     rotation_deg=0.0
+    # )
+    vectors_transformed = transformation_triangular_pyramid(
         vectors_refined,
         cone_type,
         cone_angle_deg,
@@ -174,7 +233,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"{name}_square_pyramid_{cone_type}_{cone_angle_deg}deg_transformed{ext}"
+    file_name = f"{name}_triangular_pyramid_{cone_type}_{cone_angle_deg}deg_transformed{ext}"
     output_path = os.path.join(output_dir, file_name)
     my_mesh_transformed.save(output_path)
 

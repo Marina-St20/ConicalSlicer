@@ -10,6 +10,30 @@ FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\Coni
 
 NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 
+def triangular_pyramid_rho(dx, dy, rotation_deg=0.0):
+    """
+    Triangular pyramid height-field distance.
+
+    dx, dy are coordinates relative to the pyramid center.
+    rotation_deg rotates the triangular pyramid orientation in XY.
+
+    This creates 3 planar faces meeting at the center/apex.
+    """
+    theta = np.deg2rad(rotation_deg)
+
+    # Three directions spaced 120 degrees apart
+    a0 = theta
+    a1 = theta + 2.0 * np.pi / 3.0
+    a2 = theta + 4.0 * np.pi / 3.0
+
+    p0 = dx * np.cos(a0) + dy * np.sin(a0)
+    p1 = dx * np.cos(a1) + dy * np.sin(a1)
+    p2 = dx * np.cos(a2) + dy * np.sin(a2)
+
+    rho = np.maximum.reduce([p0, p1, p2])
+
+    return rho
+
 def square_pyramid_rho(dx, dy, rotation_deg=0.0):
     """
     Square pyramid height-field distance.
@@ -226,7 +250,11 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
         dx_vals = x_vals - bed_center_x
         dy_vals = y_vals - bed_center_y
 
-        rho_vals = square_pyramid_rho(dx_vals, dy_vals, rotation_deg=0.0)
+        #rho_vals = square_pyramid_rho(dx_vals, dy_vals, rotation_deg=0.0)
+
+        #z_vals = z_layer - c * tan_a * rho_vals
+
+        rho_vals = triangular_pyramid_rho(dx_vals, dy_vals, rotation_deg=0.0)
 
         z_vals = z_layer - c * tan_a * rho_vals
 
@@ -447,7 +475,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"{name}_bt_square_pyramid_{cone_type}_{cone_angle_deg}deg.gcode"
+    file_name = f"{name}_bt_triangular_pyramid_{cone_type}_{cone_angle_deg}deg.gcode"
     output_path = os.path.join(output_dir, file_name)
 
     with open(output_path, 'w+', encoding='utf-8', newline='\n') as f_out:
@@ -461,7 +489,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\XYZ_quality_cube_correct_orientation_square_pyramid_outward_20deg_transformed_PLA_25m25s.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\XYZ_quality_cube_correct_orientation_triangular_pyramid_outward_20deg_transformed_PLA_26m38s.gcode"
 dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
