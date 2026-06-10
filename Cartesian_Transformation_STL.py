@@ -137,7 +137,7 @@ file_path = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlice
 dir_transformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
 number_iterations = 3                # mesh refinement iterations
-cone_angle_degrees = 10            # recommended: 5-20 deg for cartesian printers
+cone_angle_degrees = 45            # recommended: 5-20 deg for cartesian printers
 
 transformation_STL_file(
     path=file_path,

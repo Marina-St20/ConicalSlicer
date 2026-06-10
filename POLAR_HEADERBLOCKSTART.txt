@@ -1,0 +1,8 @@
+; --- CXZB 4-axis initialization ---
+G21          ; millimeters
+G90          ; absolute axis positions
+M83          ; relative extrusion
+G94          ; feedrate in units/min
+G28          ; home axes
+G92 E0       ; reset extruder
+; --- end header ---
