@@ -421,7 +421,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"{name}_bt_{cone_type}_{cone_angle_deg}deg.gcode"
+    file_name = f"{name}_bt_final.gcode"
     output_path = os.path.join(output_dir, file_name)
 
     with open(output_path, 'w+', encoding='utf-8', newline='\n') as f_out:
@@ -440,7 +440,7 @@ dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\Co
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  7.5         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  10         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
