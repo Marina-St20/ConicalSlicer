@@ -3,7 +3,7 @@ from stl import mesh
 import time
 import os
 
-def square_pyramid_rho(dx, dy, rotation_deg=0.0):
+def square_pyramid_rho(dx, dy, rotation_deg=45.0):
     """
     Square pyramid height-field distance.
 
@@ -78,7 +78,7 @@ def transformation_cone(points, cone_type, cone_angle_deg):
     points_transformed = list(map(T, points[:, 0], points[:, 1], points[:, 2]))
     return np.array(points_transformed)
 
-def transformation_square_pyramid(points, cone_type, cone_angle_deg, rotation_deg=0.0):
+def transformation_square_pyramid(points, cone_type, cone_angle_deg, rotation_deg=45.0):
     """
     Cartesian-printer-friendly square pyramidal transformation.
 
@@ -161,7 +161,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
         vectors_refined,
         cone_type,
         cone_angle_deg,
-        rotation_deg=0.0
+        rotation_deg=45.0
     )
 
     vectors_transformed = sit_model_on_build_plate(vectors_transformed)
@@ -175,7 +175,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
     #file_name = f"{name}_square_pyramid_{cone_type}_{cone_angle_deg}deg_transformed{ext}"
-    file_name = f"Square Pyramidal {name} {cone_angle_deg}-degrees db FINAL{ext}"
+    file_name = f"Diamond Pyramidal {name} {cone_angle_deg}-degrees db FINAL{ext}"
     output_path = os.path.join(output_dir, file_name)
     my_mesh_transformed.save(output_path)
 
