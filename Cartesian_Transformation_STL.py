@@ -174,7 +174,8 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"{name}_square_pyramid_{cone_type}_{cone_angle_deg}deg_transformed{ext}"
+    #file_name = f"{name}_square_pyramid_{cone_type}_{cone_angle_deg}deg_transformed{ext}"
+    file_name = f"Square Pyramidal {name} {cone_angle_deg}-degrees db FINAL{ext}"
     output_path = os.path.join(output_dir, file_name)
     my_mesh_transformed.save(output_path)
 
@@ -188,11 +189,11 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # ---------------------------------------------------------------
 
 #file_path = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\ASTM_Dogbone.stl"
-file_path = r"C:\Users\canca\Downloads\XYZ_quality_cube_correct_orientation.stl"
+file_path = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\Standing Dogbone.stl"
 dir_transformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
-number_iterations = 2                # mesh refinement iterations
-cone_angle_degrees = 20            # recommended: 5-20 deg for cartesian printers
+number_iterations = 4                # mesh refinement iterations
+cone_angle_degrees = 10            # recommended: 5-20 deg for cartesian printers
 
 transformation_STL_file(
     path=file_path,

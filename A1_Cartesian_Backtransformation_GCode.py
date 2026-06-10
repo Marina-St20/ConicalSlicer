@@ -5,8 +5,8 @@ import time
 import zipfile
 import io
 
-FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
-#FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_SLOW_HEADERBLOCKSTART.txt"
+#FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
+FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_SLOW_HEADERBLOCKSTART.txt"
 
 NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 
@@ -461,12 +461,12 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\XYZ_quality_cube_correct_orientation_square_pyramid_outward_20deg_transformed_PLA_25m25s.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Square Pyramidal Standing Dogbone 10-degrees db FINAL_PLA_2h55m.gcode"
 dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  20         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  10         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
