@@ -61,6 +61,42 @@ def transformation_cone(points, cone_type, cone_angle_deg):
     points_transformed = list(map(T, points[:, 0], points[:, 1], points[:, 2]))
     return np.array(points_transformed)
 
+def center_model(vectors_refined):
+    vectors_refined = vectors_refined.copy()
+
+    min_xyz = np.min(vectors_refined, axis=0)
+    max_xyz = np.max(vectors_refined, axis=0)
+
+    center_x = (min_xyz[0] + max_xyz[0]) / 2
+    center_y = (min_xyz[1] + max_xyz[1]) / 2
+    min_z = min_xyz[2]
+
+    print("Original STL bounds:")
+    print(f"  X: {min_xyz[0]:.3f} to {max_xyz[0]:.3f}, center {center_x:.3f}")
+    print(f"  Y: {min_xyz[1]:.3f} to {max_xyz[1]:.3f}, center {center_y:.3f}")
+    print(f"  Z: {min_xyz[2]:.3f} to {max_xyz[2]:.3f}")
+
+    vectors_refined[:, 0] -= center_x
+    vectors_refined[:, 1] -= center_y
+    vectors_refined[:, 2] -= min_z
+
+    return vectors_refined
+
+def sit_model_on_build_plate(vectors_transformed):
+    vectors_transformed = vectors_transformed.copy()
+
+    min_z_after = np.min(vectors_transformed[:, 2])
+    vectors_transformed[:, 2] -= min_z_after
+
+    min_after = np.min(vectors_transformed, axis=0)
+    max_after = np.max(vectors_transformed, axis=0)
+
+    print("Transformed STL bounds:")
+    print(f"  X: {min_after[0]:.3f} to {max_after[0]:.3f}, center {(min_after[0] + max_after[0]) / 2:.3f}")
+    print(f"  Y: {min_after[1]:.3f} to {max_after[1]:.3f}, center {(min_after[1] + max_after[1]) / 2:.3f}")
+    print(f"  Z: {min_after[2]:.3f} to {max_after[2]:.3f}")
+
+    return vectors_transformed
 
 def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_angle_deg):
     start = time.time()
@@ -68,7 +104,13 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     vectors = my_mesh.vectors
     vectors_refined = refinement_triangulation(vectors, nb_iterations)
     vectors_refined = np.reshape(vectors_refined, (-1, 3))
+
+    vectors_refined = center_model(vectors_refined)
+
     vectors_transformed = transformation_cone(vectors_refined, cone_type, cone_angle_deg)
+
+    vectors_transformed = sit_model_on_build_plate(vectors_transformed)
+
     vectors_transformed = np.reshape(vectors_transformed, (-1, 3, 3))
     my_mesh_transformed = np.zeros(vectors_transformed.shape[0], dtype=mesh.Mesh.dtype)
     my_mesh_transformed['vectors'] = vectors_transformed
@@ -91,11 +133,11 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # ---------------------------------------------------------------
 
 #file_path = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\ASTM_Dogbone.stl"
-file_path = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\Test11_0.025_Extrusion_ASTM_Dogbone.stl"
+file_path = r"C:\Users\canca\Downloads\smug_goat.stl"
 dir_transformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
-number_iterations = 3                # mesh refinement iterations
-cone_angle_degrees = 5            # recommended: 5-20 deg for cartesian printers
+number_iterations = 0                # mesh refinement iterations
+cone_angle_degrees = 7.5            # recommended: 5-20 deg for cartesian printers
 
 transformation_STL_file(
     path=file_path,

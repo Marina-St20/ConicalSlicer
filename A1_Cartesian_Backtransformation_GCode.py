@@ -6,6 +6,7 @@ import zipfile
 import io
 
 FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
+#FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_SLOW_HEADERBLOCKSTART.txt"
 
 NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 
@@ -106,7 +107,7 @@ def insert_Z(row, z_value):
 
 
 def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_center_x, bed_center_y,
-                       fixed_e=0.025):
+                       fixed_e=0.0275, use_fixed_e=False):
     """
     Backtransform G-Code for a Bambu Lab Cartesian printer (A1).
 
@@ -163,8 +164,15 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
 
         if x_match is None and y_match is None and z_match is None:
             # G-code move with no XYZ — only replace E if present
-            if e_match is not None:
-                new_data.append(re.sub(pattern_E, e_replacement, row))
+            # if e_match is not None:
+            #     new_data.append(re.sub(pattern_E, e_replacement, row))
+            # else:
+            #     new_data.append(row)
+            # continue
+            # E-only / retract / prime moves.
+            # Usually leave these unchanged unless you specifically want fixed E everywhere.
+            if e_match is not None and use_fixed_e:
+                new_data.append(re.sub(pattern_E, e_replacement, row, count=1))
             else:
                 new_data.append(row)
             continue
@@ -186,7 +194,8 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
 
         # Segment long moves for smooth Z interpolation
         dist_transformed = np.linalg.norm([x_new - x_old, y_new - y_old])
-        num_segm = max(1, int(dist_transformed // maximal_length + 1))
+        #num_segm = max(1, int(dist_transformed // maximal_length + 1)) # old
+        num_segm = max(1, int(np.ceil(dist_transformed / maximal_length)))  # fixed
 
         x_vals = np.linspace(x_old_bt, x_new_bt, num_segm + 1)
         y_vals = np.linspace(y_old_bt, y_new_bt, num_segm + 1)
@@ -203,7 +212,15 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
             single_row = insert_Z(single_row, z_vals[j+1])
             if e_match is not None:
                 # print("Replacing:", e_match.group(0))
-                single_row = re.sub(pattern_E, e_replacement, single_row)
+                # single_row = re.sub(pattern_E, e_replacement, single_row)
+                if use_fixed_e:
+                    # Old behavior: force every segment to the same fixed E.
+                    single_row = re.sub(pattern_E, e_replacement, single_row, count=1)
+                else:
+                    # New behavior: preserve original relative extrusion total.
+                    e_original = float(e_match.group(0).replace('E', ''))
+                    e_segment = e_original / num_segm
+                    single_row = re.sub(pattern_E, f'E{e_segment:.5f}', single_row, count=1)
             replacement_rows += single_row
 
         if update_x:
@@ -296,10 +313,55 @@ def translate_data(data, translate_x, translate_y, z_desired):
 
     return new_data
 
+def remove_unwanted_blocks(data):
+    """
+    Remove non-model utility blocks from Bambu/Orca G-code.
+
+    Currently removes:
+      - ; SKIPPABLE_START ... ; SKIPPABLE_END blocks
+      - especially timelapse/safe-position chunks
+
+    Keeps:
+      - real print moves
+      - temperatures
+      - fan commands
+      - homing/start/end G-code
+      - layer comments
+    """
+    cleaned = []
+    in_skippable = False
+    removed_lines = 0
+    removed_blocks = 0
+    current_skiptype = None
+
+    for row in data:
+        if '; SKIPPABLE_START' in row:
+            in_skippable = True
+            removed_blocks += 1
+            removed_lines += 1
+            current_skiptype = None
+            continue
+
+        if in_skippable:
+            removed_lines += 1
+
+            if '; SKIPTYPE:' in row:
+                current_skiptype = row.strip()
+
+            if '; SKIPPABLE_END' in row:
+                in_skippable = False
+                current_skiptype = None
+
+            continue
+
+        cleaned.append(row)
+
+    print(f"  Removed {removed_blocks} skippable block(s), {removed_lines} total line(s).")
+    return cleaned
 
 def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_length,
                        x_shift, y_shift, z_desired, fixed_header_path,
-                       bed_center_x=None, bed_center_y=None, fixed_e=0.025):
+                       bed_center_x=None, bed_center_y=None, fixed_e=0.0275, use_fixed_e=False):
     """
     Full pipeline:
       read -> strip original header -> prepend fixed header
@@ -312,6 +374,10 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 
     print("Replacing header block with fixed header...")
     body = strip_original_header(data)
+
+    print("Removing timelapse/skippable utility blocks...")
+    body = remove_unwanted_blocks(body)
+
     fixed_header = read_fixed_header(fixed_header_path)
 
     if bed_center_x is None or bed_center_y is None:
@@ -320,9 +386,25 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
     else:
         print(f"Using manually specified bed center: ({bed_center_x}, {bed_center_y})")
 
-    print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, fixed E={fixed_e}...")
-    data_bt = backtransform_data(body, cone_type, cone_angle_deg, maximal_length,
-                                 bed_center_x, bed_center_y, fixed_e=fixed_e)
+    #print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, fixed E={fixed_e}...")
+    #data_bt = backtransform_data(body, cone_type, cone_angle_deg, maximal_length,
+    #                             bed_center_x, bed_center_y, fixed_e=fixed_e)
+
+    if use_fixed_e:
+        print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, fixed E={fixed_e}...")
+    else:
+        print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, preserving original relative E...")
+
+    data_bt = backtransform_data(
+        body,
+        cone_type,
+        cone_angle_deg,
+        maximal_length,
+        bed_center_x,
+        bed_center_y,
+        fixed_e=fixed_e,
+        use_fixed_e=use_fixed_e
+    )
 
     data_bt_string = ''.join(data_bt)
     data_bt = [row + ' \n' for row in data_bt_string.split('\n')]
@@ -353,12 +435,12 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Test11_0.025_Extrusion_ASTM_Dogbone_outward_5deg_transformed_PLA_22m10s.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\smug_goat_outward_7.5deg_transformed_PLA_1h52m.gcode"
 dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  5         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  7.5         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
@@ -370,7 +452,8 @@ delta_x  = 0.0   # XY shift after backtransform (leave 0 for Bambu)
 delta_y  = 0.0
 z_height = 0.2   # desired minimum Z = first layer height
 
-fixed_extrusion = 0.025   # constant E value applied to every extrusion move
+fixed_extrusion = 0.0275  # constant E value applied to every extrusion move
+use_fixed_extrusion = False  # False = preserve slicer E values, True = force fixed E
 
 # ---------------------------------------------------------------
 # Run
@@ -389,4 +472,5 @@ backtransform_file(
     bed_center_x      = override_bed_center_x,
     bed_center_y      = override_bed_center_y,
     fixed_e           = fixed_extrusion,
+    use_fixed_e       = use_fixed_extrusion,
 )
