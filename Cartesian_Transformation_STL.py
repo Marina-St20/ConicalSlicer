@@ -3,7 +3,7 @@ from stl import mesh
 import time
 import os
 
-def triangular_pyramid_rho(dx, dy, rotation_deg=30.0):
+def triangular_pyramid_rho(dx, dy, rotation_deg=0.0):
     """
     Triangular pyramid height-field distance.
 
@@ -27,7 +27,7 @@ def triangular_pyramid_rho(dx, dy, rotation_deg=30.0):
 
     return rho
 
-def square_pyramid_rho(dx, dy, rotation_deg=30.0):
+def square_pyramid_rho(dx, dy, rotation_deg=0.0):
     """
     Square pyramid height-field distance.
 
@@ -102,7 +102,7 @@ def transformation_cone(points, cone_type, cone_angle_deg):
     points_transformed = list(map(T, points[:, 0], points[:, 1], points[:, 2]))
     return np.array(points_transformed)
 
-def transformation_square_pyramid(points, cone_type, cone_angle_deg, rotation_deg=30.0):
+def transformation_square_pyramid(points, cone_type, cone_angle_deg, rotation_deg=0.0):
     """
     Cartesian-printer-friendly square pyramidal transformation.
 
@@ -214,13 +214,13 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     #     vectors_refined,
     #     cone_type,
     #     cone_angle_deg,
-    #     rotation_deg=30.0
+    #     rotation_deg=0.0
     # )
     vectors_transformed = transformation_triangular_pyramid(
         vectors_refined,
         cone_type,
         cone_angle_deg,
-        rotation_deg=30.0
+        rotation_deg=0.0
     )
 
     vectors_transformed = sit_model_on_build_plate(vectors_transformed)
@@ -233,7 +233,8 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"hope_this_works_{name}_triangular_pyramid_{cone_type}_{cone_angle_deg}deg_transformed{ext}"
+    #file_name = f"hope_this_works_{name}_triangular_pyramid_{cone_type}_{cone_angle_deg}deg_transformed{ext}"
+    file_name = f"Triangle Pyramidal {name} {cone_angle_deg}-degrees db FINAL{ext}"
     output_path = os.path.join(output_dir, file_name)
     my_mesh_transformed.save(output_path)
 
@@ -247,7 +248,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # ---------------------------------------------------------------
 
 #file_path = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\ASTM_Dogbone.stl"
-file_path = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\Flat Normal Dogbone.stl"
+file_path = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\Standing Dogbone.stl"
 dir_transformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
 number_iterations = 4                # mesh refinement iterations

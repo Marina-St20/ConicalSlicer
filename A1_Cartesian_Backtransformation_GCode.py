@@ -5,12 +5,12 @@ import time
 import zipfile
 import io
 
-FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
-#FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_SLOW_HEADERBLOCKSTART.txt"
+#FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
+FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_SLOW_HEADERBLOCKSTART.txt"
 
 NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 
-def triangular_pyramid_rho(dx, dy, rotation_deg=30.0):
+def triangular_pyramid_rho(dx, dy, rotation_deg=0.0):
     """
     Triangular pyramid height-field distance.
 
@@ -34,7 +34,7 @@ def triangular_pyramid_rho(dx, dy, rotation_deg=30.0):
 
     return rho
 
-def square_pyramid_rho(dx, dy, rotation_deg=30.0):
+def square_pyramid_rho(dx, dy, rotation_deg=0.0):
     """
     Square pyramid height-field distance.
 
@@ -254,7 +254,7 @@ def backtransform_data(data, cone_type, cone_angle_deg, maximal_length, bed_cent
 
         #z_vals = z_layer - c * tan_a * rho_vals
 
-        rho_vals = triangular_pyramid_rho(dx_vals, dy_vals, rotation_deg=30.0)
+        rho_vals = triangular_pyramid_rho(dx_vals, dy_vals, rotation_deg=0.0)
 
         z_vals = z_layer - c * tan_a * rho_vals
 
@@ -489,7 +489,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\hope_this_works_Flat Normal Dogbone_triangular_pyramid_outward_10deg_transformed_PLA_27m27s.gcode"
+file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Triangle Pyramidal Standing Dogbone 10-degrees db FINAL_PLA_2h55m.gcode"
 dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
