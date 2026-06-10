@@ -625,7 +625,7 @@ fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
 cone_angle_degrees  =  45         # must match Cartesian_Transformation_STL.py exactly
 
-max_length = 1.0   # max segment length in mm (smaller = smoother curves)
+max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
 # Bambu A1 bed center. Set to None to auto-detect from G-code bounding box.
 override_bed_center_x = 128.0

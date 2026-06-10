@@ -136,7 +136,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 file_path = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\3DBenchy.stl"
 dir_transformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
-number_iterations = 3                # mesh refinement iterations
+number_iterations = 1                # mesh refinement iterations
 cone_angle_degrees = 45            # recommended: 5-20 deg for cartesian printers
 
 transformation_STL_file(
