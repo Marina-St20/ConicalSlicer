@@ -198,6 +198,162 @@ def auto_shift_cxzb_z(data_bt_string, desired_min_z):
 
     return "\n".join(shifted_lines) + "\n"
 
+def clamp(value, min_value, max_value):
+    return max(min_value, min(max_value, value))
+
+
+def compute_effective_max_nozzle_angle_deg(
+    user_max_nozzle_angle_deg,
+    model_height_mm,
+    full_angle_model_height_mm,
+):
+    """
+    Compute the actual max nozzle angle allowed for this model height.
+
+    Example:
+        user_max_nozzle_angle_deg = 60
+        full_angle_model_height_mm = 6
+        model_height_mm = 2
+
+        effective max = 60 * (2 / 6) = 20 deg
+
+    This prevents very flat/thin parts from using huge B angles.
+    """
+    user_max_nozzle_angle_deg = clamp(user_max_nozzle_angle_deg, 0.0, 89.0)
+
+    if full_angle_model_height_mm <= 0:
+        return user_max_nozzle_angle_deg
+
+    height_scale = model_height_mm / full_angle_model_height_mm
+    height_scale = clamp(height_scale, 0.0, 1.0)
+
+    return user_max_nozzle_angle_deg * height_scale
+
+# B angle = max angle * normalized model height
+def nozzle_tilt_from_model_z(
+    model_z,
+    model_z_min,
+    model_z_max,
+    effective_max_nozzle_angle_deg,
+    cone_direction_sign,
+    angle_ramp_power=1.0,
+):
+    """
+    Return nozzle tilt angle in radians based on model Z height.
+
+    model_z_min -> 0 deg
+    model_z_max -> effective_max_nozzle_angle_deg
+
+    angle_ramp_power:
+        1.0 = linear ramp
+        2.0 = slower near bottom, faster near top
+        0.5 = faster near bottom, slower near top
+    """
+    model_height = model_z_max - model_z_min
+
+    if model_height <= 1e-9:
+        return 0.0
+
+    z_fraction = (model_z - model_z_min) / model_height
+    z_fraction = clamp(z_fraction, 0.0, 1.0)
+
+    z_fraction = z_fraction ** angle_ramp_power
+
+    angle_deg = effective_max_nozzle_angle_deg * z_fraction
+
+    return cone_direction_sign * np.radians(angle_deg)
+
+# Add a Z-height scanner before calculating angle by height.
+def estimate_backtransformed_model_z_bounds(
+    data,
+    cone_type,
+    cone_angle_deg,
+    maximal_length,
+    bed_center_x,
+    bed_center_y,
+):
+    """
+    First pass through the G-code to estimate the backtransformed model Z range.
+
+    This uses the same XY inverse and cone Z inverse as backtransform_data(),
+    but it does not generate output G-code.
+    """
+    cone_angle_rad = np.radians(cone_angle_deg)
+    tan_a = np.tan(cone_angle_rad)
+    c = 1 if cone_type == 'outward' else -1
+
+    pattern_G = r'\AG[01] '
+    pattern_X = rf'X{NUM}'
+    pattern_Y = rf'Y{NUM}'
+    pattern_Z = rf'Z{NUM}'
+
+    x_old, y_old = bed_center_x, bed_center_y
+    x_new, y_new = bed_center_x, bed_center_y
+    z_layer = 0.0
+    update_x, update_y = False, False
+
+    z_min = None
+    z_max = None
+
+    for row in data:
+        g_match = re.search(pattern_G, row)
+        if g_match is None:
+            continue
+
+        x_match = re.search(pattern_X, row)
+        y_match = re.search(pattern_Y, row)
+        z_match = re.search(pattern_Z, row)
+
+        if x_match is None and y_match is None and z_match is None:
+            continue
+
+        if z_match is not None:
+            z_layer = float(z_match.group(0).replace('Z', ''))
+
+        if x_match is not None:
+            x_new = float(x_match.group(0).replace('X', ''))
+            update_x = True
+
+        if y_match is not None:
+            y_new = float(y_match.group(0).replace('Y', ''))
+            update_y = True
+
+        x_old_bt = (x_old - bed_center_x) * np.cos(cone_angle_rad) + bed_center_x
+        y_old_bt = (y_old - bed_center_y) * np.cos(cone_angle_rad) + bed_center_y
+        x_new_bt = (x_new - bed_center_x) * np.cos(cone_angle_rad) + bed_center_x
+        y_new_bt = (y_new - bed_center_y) * np.cos(cone_angle_rad) + bed_center_y
+
+        dist_transformed = np.linalg.norm([x_new - x_old, y_new - y_old])
+        num_segm = max(1, int(np.ceil(dist_transformed / maximal_length)))
+
+        x_vals = np.linspace(x_old_bt, x_new_bt, num_segm + 1)
+        y_vals = np.linspace(y_old_bt, y_new_bt, num_segm + 1)
+
+        r_vals = np.sqrt((x_vals - bed_center_x)**2 + (y_vals - bed_center_y)**2)
+        z_vals = z_layer - c * tan_a * r_vals
+
+        local_min = float(np.min(z_vals))
+        local_max = float(np.max(z_vals))
+
+        if z_min is None or local_min < z_min:
+            z_min = local_min
+
+        if z_max is None or local_max > z_max:
+            z_max = local_max
+
+        if update_x:
+            x_old = x_new
+            update_x = False
+
+        if update_y:
+            y_old = y_new
+            update_y = False
+
+    if z_min is None or z_max is None:
+        raise ValueError("Could not estimate model Z bounds from G-code.")
+
+    return z_min, z_max
+
 def backtransform_data(
     data,
     cone_type,
@@ -212,6 +368,9 @@ def backtransform_data(
     b_sign=-1.0,
     safety_limits=None,
     machine_z_lift=0.0,
+    max_nozzle_angle_deg=60.0,
+    full_angle_model_height_mm=6.0,
+    angle_ramp_power=1.0,
 ):
     """
     Backtransform G-Code for a Bambu Lab Cartesian printer (A1).
@@ -234,11 +393,38 @@ def backtransform_data(
 
     All extrusion (E) values are replaced with a fixed constant (fixed_e).
     """
+    # cone_angle_rad = np.radians(cone_angle_deg)
+    # tan_a = np.tan(cone_angle_rad)
+    # c = 1 if cone_type == 'outward' else -1
+
+    # head_tilt_rad = c * cone_angle_rad
+
+    #Replace the constant head tilt setup
     cone_angle_rad = np.radians(cone_angle_deg)
     tan_a = np.tan(cone_angle_rad)
     c = 1 if cone_type == 'outward' else -1
 
-    head_tilt_rad = c * cone_angle_rad
+    model_z_min, model_z_max = estimate_backtransformed_model_z_bounds(
+        data=data,
+        cone_type=cone_type,
+        cone_angle_deg=cone_angle_deg,
+        maximal_length=maximal_length,
+        bed_center_x=bed_center_x,
+        bed_center_y=bed_center_y,
+    )
+
+    model_height_mm = model_z_max - model_z_min
+
+    effective_max_nozzle_angle_deg = compute_effective_max_nozzle_angle_deg(
+        user_max_nozzle_angle_deg=max_nozzle_angle_deg,
+        model_height_mm=model_height_mm,
+        full_angle_model_height_mm=full_angle_model_height_mm,
+    )
+
+    print(f"  Backtransformed model Z range: {model_z_min:.3f} to {model_z_max:.3f} mm")
+    print(f"  Backtransformed model height: {model_height_mm:.3f} mm")
+    print(f"  User max nozzle angle: {max_nozzle_angle_deg:.3f} deg")
+    print(f"  Effective max nozzle angle for this model: {effective_max_nozzle_angle_deg:.3f} deg")
 
     # pattern_X = r'X[-0-9]+[.]?[0-9]*'
     # pattern_Y = r'Y[-0-9]+[.]?[0-9]*'
@@ -331,13 +517,38 @@ def backtransform_data(
             #z_cart = z_vals[j + 1]
             z_cart = z_vals[j + 1] + machine_z_lift
 
+            # c_axis, x_axis, z_axis, b_axis, prev_theta, theta_accum = cartesian_to_cxzb(
+            #     x_cart=x_cart,
+            #     y_cart=y_cart,
+            #     z_cart=z_cart,
+            #     bed_center_x=bed_center_x,
+            #     bed_center_y=bed_center_y,
+            #     head_tilt_rad=head_tilt_rad,
+            #     nozzle_offset=nozzle_offset,
+            #     prev_theta=prev_theta,
+            #     theta_accum=theta_accum,
+            #     c_sign=c_sign,
+            #     b_sign=b_sign,
+            # )
+
+            # Main calls and change, instead of one constant B, every segment gets a B angle based on its current recovered model.
+
+            current_head_tilt_rad = nozzle_tilt_from_model_z(
+                model_z=z_cart,
+                model_z_min=model_z_min,
+                model_z_max=model_z_max,
+                effective_max_nozzle_angle_deg=effective_max_nozzle_angle_deg,
+                cone_direction_sign=c,
+                angle_ramp_power=angle_ramp_power,
+            )
+
             c_axis, x_axis, z_axis, b_axis, prev_theta, theta_accum = cartesian_to_cxzb(
                 x_cart=x_cart,
                 y_cart=y_cart,
                 z_cart=z_cart,
                 bed_center_x=bed_center_x,
                 bed_center_y=bed_center_y,
-                head_tilt_rad=head_tilt_rad,
+                head_tilt_rad=current_head_tilt_rad,
                 nozzle_offset=nozzle_offset,
                 prev_theta=prev_theta,
                 theta_accum=theta_accum,
@@ -534,6 +745,9 @@ def backtransform_file(
     b_sign=-1.0,
     safety_limits=None,
     machine_z_lift=0.0,
+    max_nozzle_angle_deg=60.0,
+    full_angle_model_height_mm=6.0,
+    angle_ramp_power=1.0,
 ):
     """
     Full pipeline:
@@ -568,7 +782,7 @@ def backtransform_file(
     else:
         print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, preserving original relative E...")
 
-    data_bt = backtransform_data(
+        data_bt = backtransform_data(
         body,
         cone_type,
         cone_angle_deg,
@@ -582,6 +796,9 @@ def backtransform_file(
         b_sign=b_sign,
         safety_limits=safety_limits,
         machine_z_lift=machine_z_lift,
+        max_nozzle_angle_deg=max_nozzle_angle_deg,
+        full_angle_model_height_mm=full_angle_model_height_mm,
+        angle_ramp_power=angle_ramp_power,
     )
 
     data_bt_string = ''.join(data_bt)
@@ -643,6 +860,11 @@ nozzle_offset = 43.0  # mm, replace with real value
 b_sign = -1.0         # flip to +1 if B tilts wrong way
 c_sign = 1.0          # flip to -1 if bed rotates opposite direction
 
+# Variable nozzle-angle settings
+max_nozzle_angle_deg = 60.0          # user-requested max B angle, clamped to 0-89 deg
+full_angle_model_height_mm = 6.0     # model height needed to allow full max_nozzle_angle_deg
+angle_ramp_power = 1.0               # 1.0 linear, 2.0 gentler near bottom, 0.5 faster near bottom
+
 min_radius = 0.0
 max_radius = 150.0    # replace with your machine limit
 min_z = 0.0
@@ -673,4 +895,7 @@ backtransform_file(
     b_sign            = b_sign,
     safety_limits     = None,
     machine_z_lift    = machine_z_lift,
+    max_nozzle_angle_deg = max_nozzle_angle_deg,
+    full_angle_model_height_mm = full_angle_model_height_mm,
+    angle_ramp_power = angle_ramp_power,
 )
