@@ -93,26 +93,54 @@ def adaptive_refinement_triangulation(triangle_array, cone_type, cone_angle_deg,
 
     return refined
 
+def clamp(value, min_value, max_value):
+    return max(min_value, min(max_value, value))
 
-def transformation_cone(points, cone_type, cone_angle_deg):
+
+def cone_angle_from_z_rad(z, z_min, z_max, max_cone_angle_deg, angle_ramp_power=1.0):
     """
-    Cartesian-printer-friendly conical transformation.
-    Uses a shallow cone angle (recommended: 5-20 degrees).
+    Height-dependent cone angle.
 
-    The scaling factor is derived from the cone angle:
-        scale = 1 / cos(cone_angle)   (XY scale to preserve footprint)
-        z_offset = tan(cone_angle) * r  (Z lift per unit radius)
+    z_min -> 0 degrees
+    z_max -> max_cone_angle_deg
+
+    angle_ramp_power:
+        1.0 = linear
+        2.0 = gentler near bottom, stronger near top
+        0.5 = stronger near bottom
+    """
+    height = z_max - z_min
+
+    if height <= 1e-9:
+        return 0.0
+
+    frac = (z - z_min) / height
+    frac = clamp(frac, 0.0, 1.0)
+
+    frac = frac ** angle_ramp_power
+
+    return np.radians(max_cone_angle_deg * frac)
+
+def transformation_cone(points, cone_type, max_cone_angle_deg, angle_ramp_power=1.0):
+    """
+    Height-dependent conical transformation.
+
+    Instead of using one constant cone angle everywhere, the cone angle
+    increases with original model Z height:
+
+        bottom of model -> 0 deg
+        top of model    -> max_cone_angle_deg
 
     Forward transform:
-        x' = scale * x
-        y' = scale * y
-        z' = z + c * tan(cone_angle) * sqrt(x^2 + y^2)
+        angle(z) = max_angle * normalized_z^power
 
-    where c = -1 for inward, +1 for outward.
+        x' = x / cos(angle(z))
+        y' = y / cos(angle(z))
+        z' = z + c * tan(angle(z)) * r
+
+    where c = +1 for outward, -1 for inward.
     """
-    cone_angle_rad = np.radians(cone_angle_deg)
-    scale = 1.0 / np.cos(cone_angle_rad)
-    tan_a = np.tan(cone_angle_rad)
+    max_cone_angle_deg = clamp(max_cone_angle_deg, 0.0, 89.0)
 
     if cone_type == 'outward':
         c = 1
@@ -121,9 +149,39 @@ def transformation_cone(points, cone_type, cone_angle_deg):
     else:
         raise ValueError('{} is not an admissible type for the transformation'.format(cone_type))
 
+    z_min = np.min(points[:, 2])
+    z_max = np.max(points[:, 2])
+    model_height = z_max - z_min
+
+    print("Height-dependent cone transform:")
+    print(f"  Model Z range after centering: {z_min:.3f} to {z_max:.3f} mm")
+    print(f"  Original model height: {model_height:.3f} mm")
+    print(f"  Max cone angle at top: {max_cone_angle_deg:.3f} deg")
+    print(f"  Angle ramp power: {angle_ramp_power:.3f}")
+    print("")
+    print("COPY THIS VALUE INTO THE POLAR BACKTRANSFORM FILE:")
+    print(f"  original_model_height_mm = {model_height:.5f}")
+    print("")
+
     def T(x, y, z):
         r = np.sqrt(x**2 + y**2)
-        return np.array([scale * x, scale * y, z + c * tan_a * r])
+
+        angle_rad = cone_angle_from_z_rad(
+            z=z,
+            z_min=z_min,
+            z_max=z_max,
+            max_cone_angle_deg=max_cone_angle_deg,
+            angle_ramp_power=angle_ramp_power,
+        )
+
+        scale = 1.0 / np.cos(angle_rad)
+        tan_a = np.tan(angle_rad)
+
+        return np.array([
+            scale * x,
+            scale * y,
+            z + c * tan_a * r
+        ])
 
     points_transformed = list(map(T, points[:, 0], points[:, 1], points[:, 2]))
     return np.array(points_transformed)
@@ -165,7 +223,7 @@ def sit_model_on_build_plate(vectors_transformed):
 
     return vectors_transformed
 
-def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_angle_deg):
+def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_angle_deg, angle_ramp_power=1.0):
     start = time.time()
     my_mesh = mesh.Mesh.from_file(path)
     vectors = my_mesh.vectors
@@ -187,7 +245,12 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 
     vectors_refined = center_model(vectors_refined)
 
-    vectors_transformed = transformation_cone(vectors_refined, cone_type, cone_angle_deg)
+    vectors_transformed = transformation_cone(
+        vectors_refined,
+        cone_type,
+        max_cone_angle_deg=cone_angle_deg,
+        angle_ramp_power=angle_ramp_power,
+    )
 
     vectors_transformed = sit_model_on_build_plate(vectors_transformed)
 
@@ -213,11 +276,12 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # ---------------------------------------------------------------
 
 #file_path = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\ASTM_Dogbone.stl"
-file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\ISO Cone Angle Fix 2.5 Benchy.stl"
+file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\ISO REAL Cone Angle Fix 2.5 Benchy.stl"
 dir_transformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
 number_iterations = 0                # mesh refinement iterations
-cone_angle_degrees = 30            # recommended: 5-20 deg for cartesian printers
+cone_angle_degrees = 60            # max cone angle at the TOP of the model
+angle_ramp_power = 1.0             # 1.0 linear, 2.0 gentler bottom, 0.5 stronger bottom
 
 transformation_STL_file(
     path=file_path,
@@ -225,4 +289,5 @@ transformation_STL_file(
     cone_type=transformation_type,
     nb_iterations=number_iterations,
     cone_angle_deg=cone_angle_degrees,
+    angle_ramp_power=angle_ramp_power,
 )
