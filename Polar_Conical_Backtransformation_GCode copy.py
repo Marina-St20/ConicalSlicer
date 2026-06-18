@@ -273,10 +273,12 @@ def estimate_backtransformed_model_z_bounds(
     bed_center_y,
 ):
     """
-    First pass through the G-code to estimate the backtransformed model Z range.
+    First pass through the G-code to estimate the real printed model Z range.
 
-    This uses the same XY inverse and cone Z inverse as backtransform_data(),
-    but it does not generate output G-code.
+    IMPORTANT:
+    This only uses positive-extrusion moves. It ignores travel moves,
+    wipe moves, retractions, Z-only moves, startup moves, and footer moves.
+    That keeps the B-angle ramp based on the actual printed model height.
     """
     cone_angle_rad = np.radians(cone_angle_deg)
     tan_a = np.tan(cone_angle_rad)
@@ -286,6 +288,7 @@ def estimate_backtransformed_model_z_bounds(
     pattern_X = rf'X{NUM}'
     pattern_Y = rf'Y{NUM}'
     pattern_Z = rf'Z{NUM}'
+    pattern_E = rf'E{NUM}'
 
     x_old, y_old = bed_center_x, bed_center_y
     x_new, y_new = bed_center_x, bed_center_y
@@ -296,6 +299,11 @@ def estimate_backtransformed_model_z_bounds(
     z_max = None
 
     for row in data:
+        stripped = row.strip()
+
+        if stripped.startswith(("G2 ", "G3 ", "G17")):
+            continue
+
         g_match = re.search(pattern_G, row)
         if g_match is None:
             continue
@@ -303,10 +311,9 @@ def estimate_backtransformed_model_z_bounds(
         x_match = re.search(pattern_X, row)
         y_match = re.search(pattern_Y, row)
         z_match = re.search(pattern_Z, row)
+        e_match = re.search(pattern_E, row)
 
-        if x_match is None and y_match is None and z_match is None:
-            continue
-
+        # Update modal Z/X/Y state even on travel moves.
         if z_match is not None:
             z_layer = float(z_match.group(0).replace('Z', ''))
 
@@ -317,6 +324,32 @@ def estimate_backtransformed_model_z_bounds(
         if y_match is not None:
             y_new = float(y_match.group(0).replace('Y', ''))
             update_y = True
+
+        # Only use actual positive extrusion moves for model Z bounds.
+        if e_match is None:
+            if update_x:
+                x_old = x_new
+                update_x = False
+            if update_y:
+                y_old = y_new
+                update_y = False
+            continue
+
+        e_val = float(e_match.group(0).replace('E', ''))
+
+        # Relative extrusion: positive E = printing, negative E = retract/wipe.
+        if e_val <= 0:
+            if update_x:
+                x_old = x_new
+                update_x = False
+            if update_y:
+                y_old = y_new
+                update_y = False
+            continue
+
+        # Need XY to estimate the conical inverse radius correctly.
+        if x_match is None and y_match is None:
+            continue
 
         x_old_bt = (x_old - bed_center_x) * np.cos(cone_angle_rad) + bed_center_x
         y_old_bt = (y_old - bed_center_y) * np.cos(cone_angle_rad) + bed_center_y
@@ -331,6 +364,9 @@ def estimate_backtransformed_model_z_bounds(
 
         r_vals = np.sqrt((x_vals - bed_center_x)**2 + (y_vals - bed_center_y)**2)
         z_vals = z_layer - c * tan_a * r_vals
+
+        # Use segment endpoints except the old point.
+        z_vals = z_vals[1:]
 
         local_min = float(np.min(z_vals))
         local_max = float(np.max(z_vals))
@@ -350,7 +386,7 @@ def estimate_backtransformed_model_z_bounds(
             update_y = False
 
     if z_min is None or z_max is None:
-        raise ValueError("Could not estimate model Z bounds from G-code.")
+        raise ValueError("Could not estimate model Z bounds from positive extrusion moves.")
 
     return z_min, z_max
 
@@ -450,7 +486,17 @@ def backtransform_data(
     prev_theta = 0.0
     theta_accum = 0.0
 
+    b_min_seen = None
+    b_max_seen = None
+
     for row in data:
+        stripped = row.strip()
+
+        # Drop slicer arc/plane commands for now.
+        # These are not converted into CXZB.
+        if stripped.startswith(("G2 ", "G3 ", "G17")):
+            continue
+
         g_match = re.search(pattern_G, row)
         if g_match is None:
             new_data.append(row)
@@ -556,6 +602,12 @@ def backtransform_data(
                 b_sign=b_sign,
             )
 
+            if b_min_seen is None or b_axis < b_min_seen:
+                b_min_seen = b_axis
+
+            if b_max_seen is None or b_axis > b_max_seen:
+                b_max_seen = b_axis
+
             if safety_limits is not None:
                 if not (safety_limits["min_radius"] <= x_axis <= safety_limits["max_radius"]):
                     raise ValueError(f"Radius X out of range: {x_axis:.3f}")
@@ -598,6 +650,9 @@ def backtransform_data(
             update_y = False
 
         new_data.append(replacement_rows)
+
+    if b_min_seen is not None and b_max_seen is not None:
+        print(f"  Generated B range before output: {b_min_seen:.3f} to {b_max_seen:.3f} deg")
 
     return new_data
 
@@ -782,7 +837,7 @@ def backtransform_file(
     else:
         print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, preserving original relative E...")
 
-        data_bt = backtransform_data(
+    data_bt = backtransform_data(
         body,
         cone_type,
         cone_angle_deg,
