@@ -6,7 +6,7 @@ mesh = trimesh.load_mesh("C:\\Users\\monto\\Downloads\\Xrot-Bone-Remesh.stl")
 
 part = Part("part")
 part.setGeometry(mesh)
-overhead_angle = 31.5
+overhead_angle = 10
 
 
 support_generator = BlockSupportGenerator()
