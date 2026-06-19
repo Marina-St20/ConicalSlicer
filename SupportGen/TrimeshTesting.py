@@ -70,37 +70,44 @@ def cast_down(mesh, face_index, max_distance=np.inf, offset=1e-8, z_threshold=-1
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: TrimeshTesting.py file.stl [face_index]")
+        print("Usage: TrimeshTesting.py file.stl")
         return
     path = sys.argv[1]
     mesh = load_mesh(path)
     dimensions = get_size(mesh)
+    supports = trimesh.Trimesh(process=False)
     print(f"Mesh dimensions: {dimensions[0]:.3f} x {dimensions[1]:.3f} x {dimensions[2]:.3f}")
     downward = downward_faces(mesh, 60)
     print(f"Total faces: {len(mesh.faces)}")
     print(f"Downward-pointing faces: {len(downward)}")
 
-    if len(sys.argv) == 3:
-        fi = int(sys.argv[2])
-        hit, locs, tris = cast_down(mesh, fi, max_distance=dimensions[2] + 1, z_threshold=1)
-        print(f"Face {fi} downward: {fi in downward}")
-        print(f"Intersects below (excluding itself): {hit}")
-        if hit:
-            for i, (l, t) in enumerate(zip(locs, tris)):
-                print(f"  Hit {i}: triangle {t} at {l}")
-    else:
-        intersecting = 0
-        intersected_faces = np.ndarray(shape=(1,3))
-        for fi in downward:
-            hit, locs, tris = cast_down(mesh, int(fi), max_distance=dimensions[2] + 1, z_threshold=1)
-            if hit:
-                intersecting += 1
-            if tris is not None and len(locs) > 0:
-                intersected_faces = np.vstack([intersected_faces, locs]) if intersected_faces.size > 0 else locs
+    # For testing
+    # if len(sys.argv) == 3:
+    #     fi = int(sys.argv[2])
+    #     hit, locs, tris = cast_down(mesh, fi, max_distance=dimensions[2] + 1, z_threshold=1)
+    #     print(f"Face {fi} downward: {fi in downward}")
+    #     print(f"Intersects below (excluding itself): {hit}")
+    #     if hit:
+    #         for i, (l, t) in enumerate(zip(locs, tris)):
+    #             print(f"  Hit {i}: triangle {t} at {l}")
+    # else:
 
-        print(f"Total downward faces: {len(downward)}")
-        print(f"Faces with intersection: {intersecting}")
-        print(f"Total faces intersected below (excluding itself): {len(intersected_faces)}")
+    intersecting = 0
+    intersected_faces = np.ndarray(shape=(1,3))
+    for fi in downward:
+        hit, locs, tris = cast_down(mesh, int(fi), max_distance=dimensions[2] + 1, z_threshold=1)
+        if hit:
+            intersecting += 1
+        if tris is not None and len(locs) > 0:
+            intersected_faces = np.vstack([intersected_faces, locs]) if intersected_faces.size > 0 else locs
+            print(f"Face {fi} intersects below at locations: {locs} with triangles: {tris}")
+
+    print(f"Total downward faces: {len(downward)}")
+    print(f"Faces with intersection: {intersecting}")
+    print(f"Total faces intersected below (excluding itself): {len(intersected_faces)}")
+
+    supports.process(validate=True)
+    supports.export("../recent_supports.stl")
 
 
 if __name__ == '__main__':
