@@ -107,7 +107,8 @@ def main():
     print(f"Total faces intersected below (excluding itself): {len(intersected_faces)}")
 
     supports.process(validate=True)
-    supports.export("../recent_supports.stl")
+    # *NOT JOINING BASE WITH SUPPORTS YET FOR TESTING*
+    supports.export("../recent_supports.stl", "stl")
 
 
 if __name__ == '__main__':
