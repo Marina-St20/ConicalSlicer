@@ -1,0 +1,6 @@
+pip install numpy pip pyglet<2 scipy rtree setuptools wheel vispy
+
+# triangle through git: 
+pip install git+https://github.com/drufat/triangle.git
+
+# needs c++ extensions, maybe vs build tools

@@ -35,7 +35,7 @@ def face_centroids(mesh):
     return mesh.triangles_center
 
 
-def cast_down(mesh, face_index, centroid=None, max_distance=np.inf, offset=1e-8, z_threshold=-1e-9):
+def cast_down(mesh, face_index, centroid=None, max_distance=np.inf, offset=-1e-8, z_threshold=-1e-9):
     lowest_z = mesh.bounds[0,2]
     if (centroid is None):
         centroids = face_centroids(mesh)
@@ -113,9 +113,9 @@ def main():
     path = sys.argv[1]
     mesh = load_mesh(path)
     dimensions = get_size(mesh)
-    supports = trimesh.Trimesh(process=False)
+    supports = None
     downward = downward_faces(mesh, 60)
-    offset = 2
+    offset = -.2
     centroids = face_centroids(mesh)
 
     print(f"Mesh dimensions: {dimensions[0]:.3f} x {dimensions[1]:.3f} x {dimensions[2]:.3f}")
@@ -137,7 +137,7 @@ def main():
     intersected_faces = np.ndarray(shape=(1,3))
     for fi in downward:
         face = centroids[int(fi)]
-        print(f"Supported face: {face}")
+        print(f"Face: {face}")
         # locs is the xyz coordinates for each face, tris is the index of each
         hit, locs, tris = cast_down(mesh, int(fi), face, offset = offset, max_distance=dimensions[2] + 1, z_threshold=1)
         if hit:
@@ -150,35 +150,38 @@ def main():
                 top_intersect = locs[np.argmax(locs[:,2])]
             else:
                 top_intersect = locs[0]
-            print(f"Supporting face: {top_intersect}")
-            height = face[2] - top_intersect[2] - 2*offset
+            print(f"Base: {top_intersect}")
+            height = face[2] - top_intersect[2] + 2*offset
             support_root = face.copy()
             support_root[2] = top_intersect[2]
-            print(f"Support Root: {support_root}")
-            support = trimesh.creation.cylinder(1, height, sections=12)
+            support = trimesh.creation.cylinder(1, segment=[face+[0,0,offset],support_root], sections=3)
         else: 
             # Put cylinder w radius of inscribed circle down to z-bounding box
-            height = face[2] - mesh.bounds[0,2]  - 2*offset
             support_root = face.copy()
             support_root[2] = 0
-            support = trimesh.creation.cylinder(1,height, sections=12)
-        
-        support.apply_translation(support_root)
+            support = trimesh.creation.cylinder(1,segment=[face+[0,0,offset],support_root], sections=3)
+        print(f"Root: {support.centroid}")
+
+        print(f"{support}")
 
             #! FOR BOTH: Adjust end angle on each side to account for the face angle 
         # Add support to supports mesh
-        trimesh.util.concatenate(supports,support)
+        if supports == None:
+            supports = support
+        else:
+            supports = trimesh.util.concatenate(supports,support)
+        print(f"{len(supports.faces)}")
 
-
+    print(f"Total faces: {len(mesh.faces)}")
     print(f"Total downward faces: {len(downward)}")
     print(f"Faces with intersection: {intersecting}")
     print(f"Total faces intersected below (excluding itself): {len(intersected_faces)}")
 
     
 
-    supports.process(validate=True)
+    # supports.process(validate=True)
     # *NOT JOINING BASE WITH SUPPORTS YET FOR TESTING*
-    supports.export("../recent_supports.stl", "stl")
+    supports.export("C:/Users/monto/Downloads/benchy_tri_supports.stl", "stl")
 
 
 if __name__ == '__main__':
