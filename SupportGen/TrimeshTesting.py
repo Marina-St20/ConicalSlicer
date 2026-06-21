@@ -1,4 +1,5 @@
 import sys
+import time
 import numpy as np
 import trimesh
 
@@ -24,11 +25,15 @@ def get_size(mesh):
 # z_threshold is either a threshold marker between 0-1 or an angle in degrees. 
 # Value converted to 0-(-1) and compared with z normal of each face.
 # Angle is measured by amount offset from vertical (0 = anything not vertical, 90 = horizontal).
-def downward_faces(mesh, z_threshold=-1e-9):
-    normals = mesh.face_normals
+def downward_faces(mesh, z_threshold=-1e-9, height_threshold=0):
+    normals = mesh.face_normals.copy()
+    if height_threshold != 0:
+        faces = face_centroids(mesh).copy()
     if z_threshold > 1:
         z_threshold = np.sin((z_threshold % 180) * (np.pi / 180.0))
-    return np.where(normals[:, 2] < -z_threshold)[0]
+    down = np.where(normals[:, 2] < -z_threshold)[0]
+    above = np.where(faces[:,2] > height_threshold)[0]
+    return np.intersect1d(down,above)
 
 
 def face_centroids(mesh):
@@ -47,8 +52,8 @@ def cast_down(mesh, face_index, centroid=None, max_distance=np.inf, offset=-1e-8
     origin += np.array([0.0, 0.0, offset])
     direction = np.array([0.0, 0.0, -1.0])
 
-    locations, index_ray, index_tri = mesh.ray.intersects_location(
-        ray_origins=[origin], ray_directions=[direction], multiple_hits=True)
+    locations, _, index_tri = mesh.ray.intersects_location(
+        ray_origins=[origin], ray_directions=[direction], multiple_hits=False)
 
     if len(locations) == 0:
         return False, None, None
@@ -60,52 +65,28 @@ def cast_down(mesh, face_index, centroid=None, max_distance=np.inf, offset=-1e-8
     filtered_locations = locations[mask]
     filtered_triangles = index_tri[mask]
 
-    if np.isfinite(max_distance):
-        dists = np.linalg.norm(filtered_locations - origin, axis=1)
-        within = dists <= max_distance
-        if not np.any(within):
-            return False, None, None
-        filtered_locations = filtered_locations[within]
-        filtered_triangles = filtered_triangles[within]
-
     return True, filtered_locations, filtered_triangles
 
-# TODO: Not finished.
-def cast_cone(mesh, face_index, centroid=None, max_distance=np.inf, offset=1e-8, z_threshold=-1e-9, cast_angle=np.array([0,0,-1])):
-    lowest_z = mesh.bounds[0,2]
+def check_clearance(mesh, face_index, centroid=None, max_distance=1, offset=-1e-8, angle_threshold=(.5,.6), z_threshold=1):
     if (centroid is None):
         centroids = face_centroids(mesh)
         origin = centroids[face_index].copy()
     else:
         origin = centroid.copy()
-    origin = centroids[face_index].copy()
-    if abs(origin[2] - lowest_z) < z_threshold:
-        return False, None, None
+    if origin[2] < z_threshold: return False
     origin += np.array([0.0, 0.0, offset])
-    direction = np.array([0.0, 0.0, -1.0])
 
-    locations, index_ray, index_tri = mesh.ray.intersects_location(
-        ray_origins=[origin], ray_directions=[direction], multiple_hits=True)
+    vectors = mesh.vertices - origin
+    distances = np.linalg.norm(vectors, axis=1)
+    distance_mask = distances <= max_distance
 
-    if len(locations) == 0:
-        return False, None, None
+    circle = vectors[distance_mask]
+    inner_mask = circle[:,2] > angle_threshold[0]
+    cone = circle[inner_mask]
 
-    mask = index_tri != face_index
-    if not np.any(mask):
-        return False, None, None
-
-    filtered_locations = locations[mask]
-    filtered_triangles = index_tri[mask]
-
-    if np.isfinite(max_distance):
-        dists = np.linalg.norm(filtered_locations - origin, axis=1)
-        within = dists <= max_distance
-        if not np.any(within):
-            return False, None, None
-        filtered_locations = filtered_locations[within]
-        filtered_triangles = filtered_triangles[within]
-
-    return True, filtered_locations, filtered_triangles
+    outer_mask = cone[:,2] < angle_threshold[1]
+    cone = cone[outer_mask]
+    return len(cone) > 0
 
 def main():
     if len(sys.argv) < 2:
@@ -113,47 +94,28 @@ def main():
         return
     path = sys.argv[1]
     mesh = load_mesh(path)
+    print(f"Mesh loaded")
+    start_time = time.perf_counter()
     dimensions = get_size(mesh)
-    supports = None
-    downward = downward_faces(mesh, 60)
+    supports = mesh
+    z_threshold = 5
     offset = -.2
-    z_threshold = 3
+    downward = downward_faces(mesh, z_threshold=60, height_threshold=z_threshold)
     centroids = face_centroids(mesh)
 
-    print(f"Mesh dimensions: {dimensions[0]:.3f} x {dimensions[1]:.3f} x {dimensions[2]:.3f}")
-    print(f"Total faces: {len(mesh.faces)}")
-    print(f"Downward-pointing faces: {len(downward)}")
-
-    # For testing
-    # if len(sys.argv) == 3:
-    #     fi = int(sys.argv[2])
-    #     hit, locs, tris = cast_down(mesh, fi, max_distance=dimensions[2] + 1, z_threshold=1)
-    #     print(f"Face {fi} downward: {fi in downward}")
-    #     print(f"Intersects below (excluding itself): {hit}")
-    #     if hit:
-    #         for i, (l, t) in enumerate(zip(locs, tris)):
-    #             print(f"  Hit {i}: triangle {t} at {l}")
-    # else:
-
-    intersected_faces = np.ndarray(shape=(1,3))
     for fi in downward:
         face = centroids[int(fi)]
+        if check_clearance(supports,int(fi),face,5,-2,(0,1), z_threshold=z_threshold): continue
         if face[2] < z_threshold: continue
-        print(f"Face: {face}")
+
         # locs is the xyz coordinates for each face, tris is the index of each
-        hit, locs, tris = cast_down(mesh, int(fi), face, offset = offset, max_distance=dimensions[2] + 1, z_threshold=z_threshold)
-        if tris is not None and len(locs) > 0:
-            intersected_faces = np.vstack([intersected_faces, locs]) if intersected_faces.size > 0 else locs
-            # print(f"Face {fi} intersects below at locations: {locs} with triangles: {tris}")
+        _, locs, _ = cast_down(mesh, int(fi), face, offset = offset, max_distance=dimensions[2] + 1, z_threshold=z_threshold)
+        if locs is not None and len(locs) > 0:
             # Put cylinder with radius of inscribed circle of face down to top intersected face z + offset
-            if (len(locs) > 1):
-                top_intersect = locs[np.argmax(locs[:,2])]
-            else:
-                top_intersect = locs[0]
-            print(f"Base: {top_intersect}")
-            height = face[2] - top_intersect[2] + 2*offset
+            intersection = locs[0]
+            print(f"Base: {intersection}")
             support_root = face.copy()
-            support_root[2] = top_intersect[2]
+            support_root[2] = intersection[2]
             support = trimesh.creation.cylinder(1, segment=[face+[0,0,offset],support_root], sections=3)
         else: 
             # Put cylinder w radius of inscribed circle down to z-bounding box
@@ -162,22 +124,23 @@ def main():
             support = trimesh.creation.cylinder(1,segment=[face+[0,0,offset],support_root], sections=3)
         print(f"Root: {support.centroid}")
 
-            #! FOR BOTH: Adjust end angle on each side to account for the face angle 
-        # Add support to supports mesh
-        if supports == None:
-            supports = support
-        else:
-            supports = trimesh.util.concatenate(supports,support)
+            # FOR BOTH: Adjust end angle on each side to account for the face angle 
+
+        supports = trimesh.util.concatenate(supports,support)
         print(f"{len(supports.faces)}")
 
+    end_time = time.perf_counter()
+
+    print(f"Mesh dimensions: {dimensions[0]:.3f} x {dimensions[1]:.3f} x {dimensions[2]:.3f}")
+    print(f"Downward-pointing faces (ignores base): {len(downward)}")
+
     print(f"Total faces: {len(mesh.faces)}")
-    print(f"Total downward faces: {len(downward)}")
-    print(f"Total faces intersected below (excluding itself): {len(intersected_faces)}")
+    print(f"Support faces: {len(supports.faces) - len(mesh.faces)}")
+    print(f"Time to generate: {end_time - start_time}")
 
     
 
     # supports.process(validate=True)
-    # *NOT JOINING BASE WITH SUPPORTS YET FOR TESTING*
     supports.export("C:/Users/monto/Downloads/benchy_tri_supports.stl", "stl")
 
 
