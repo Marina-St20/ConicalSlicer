@@ -70,6 +70,7 @@ def cast_down(mesh, face_index, centroid=None, max_distance=np.inf, offset=-1e-8
 
     return True, filtered_locations, filtered_triangles
 
+# TODO: Not finished.
 def cast_cone(mesh, face_index, centroid=None, max_distance=np.inf, offset=1e-8, z_threshold=-1e-9, cast_angle=np.array([0,0,-1])):
     lowest_z = mesh.bounds[0,2]
     if (centroid is None):
@@ -116,6 +117,7 @@ def main():
     supports = None
     downward = downward_faces(mesh, 60)
     offset = -.2
+    z_threshold = 3
     centroids = face_centroids(mesh)
 
     print(f"Mesh dimensions: {dimensions[0]:.3f} x {dimensions[1]:.3f} x {dimensions[2]:.3f}")
@@ -133,15 +135,13 @@ def main():
     #             print(f"  Hit {i}: triangle {t} at {l}")
     # else:
 
-    intersecting = 0
     intersected_faces = np.ndarray(shape=(1,3))
     for fi in downward:
         face = centroids[int(fi)]
+        if face[2] < z_threshold: continue
         print(f"Face: {face}")
         # locs is the xyz coordinates for each face, tris is the index of each
-        hit, locs, tris = cast_down(mesh, int(fi), face, offset = offset, max_distance=dimensions[2] + 1, z_threshold=1)
-        if hit:
-            intersecting += 1
+        hit, locs, tris = cast_down(mesh, int(fi), face, offset = offset, max_distance=dimensions[2] + 1, z_threshold=z_threshold)
         if tris is not None and len(locs) > 0:
             intersected_faces = np.vstack([intersected_faces, locs]) if intersected_faces.size > 0 else locs
             # print(f"Face {fi} intersects below at locations: {locs} with triangles: {tris}")
@@ -162,8 +162,6 @@ def main():
             support = trimesh.creation.cylinder(1,segment=[face+[0,0,offset],support_root], sections=3)
         print(f"Root: {support.centroid}")
 
-        print(f"{support}")
-
             #! FOR BOTH: Adjust end angle on each side to account for the face angle 
         # Add support to supports mesh
         if supports == None:
@@ -174,7 +172,6 @@ def main():
 
     print(f"Total faces: {len(mesh.faces)}")
     print(f"Total downward faces: {len(downward)}")
-    print(f"Faces with intersection: {intersecting}")
     print(f"Total faces intersected below (excluding itself): {len(intersected_faces)}")
 
     
