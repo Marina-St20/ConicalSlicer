@@ -105,6 +105,9 @@ def main():
 
     for fi in downward:
         face = centroids[int(fi)]
+        _face = mesh.faces[int(fi)]
+        vertices = mesh.vertices[_face]
+        radius = np.linalg.norm(vertices[0]-vertices[1])/3
         if check_clearance(supports,int(fi),face,5,-2,(0,1), z_threshold=z_threshold): continue
         if face[2] < z_threshold: continue
 
@@ -116,12 +119,12 @@ def main():
             print(f"Base: {intersection}")
             support_root = face.copy()
             support_root[2] = intersection[2]
-            support = trimesh.creation.cylinder(1, segment=[face+[0,0,offset],support_root], sections=3)
+            support = trimesh.creation.cylinder(radius, segment=[face+[0,0,offset],support_root], sections=3)
         else: 
             # Put cylinder w radius of inscribed circle down to z-bounding box
             support_root = face.copy()
             support_root[2] = 0
-            support = trimesh.creation.cylinder(1,segment=[face+[0,0,offset],support_root], sections=3)
+            support = trimesh.creation.cylinder(radius,segment=[face+[0,0,offset],support_root], sections=3)
         print(f"Root: {support.centroid}")
 
             # FOR BOTH: Adjust end angle on each side to account for the face angle 
