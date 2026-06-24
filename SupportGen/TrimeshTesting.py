@@ -40,7 +40,7 @@ def face_centroids(mesh):
     return mesh.triangles_center
 
 
-def cast_down(mesh, face_index, centroid=None, max_distance=np.inf, offset=-1e-8, z_threshold=-1e-9):
+def cast_down(mesh, face_index, centroid=None, offset=-1e-8, z_threshold=-1e-9):
     lowest_z = mesh.bounds[0,2]
     if (centroid is None):
         centroids = face_centroids(mesh)
@@ -112,7 +112,7 @@ def main():
         if face[2] < z_threshold: continue
 
         # locs is the xyz coordinates for each face, tris is the index of each
-        _, locs, _ = cast_down(mesh, int(fi), face, offset = offset, max_distance=dimensions[2] + 1, z_threshold=z_threshold)
+        _, locs, _ = cast_down(mesh, int(fi), face, offset = offset, z_threshold=z_threshold)
         if locs is not None and len(locs) > 0:
             # Put cylinder with radius of inscribed circle of face down to top intersected face z + offset
             intersection = locs[0]
