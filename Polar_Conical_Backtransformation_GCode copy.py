@@ -1608,10 +1608,22 @@ def backtransform_file(
     )
 
     if use_conical_z_backtransform:
-        print("Conical Z mode: shifting so lowest FIRST-LAYER EXTRUSION equals desired first-layer height...")
+        cone_angle_rad = np.radians(cone_angle_deg)
+        c = 1 if cone_type == "outward" else -1
+        head_tilt_rad = c * cone_angle_rad
+
+        nozzle_z_comp_offset = (np.cos(head_tilt_rad) - 1.0) * nozzle_offset
+
+        compensated_first_layer_machine_z = z_desired + nozzle_z_comp_offset
+
+        print("Conical Z mode: shifting so lowest FIRST-LAYER EXTRUSION equals compensated machine Z...")
+        print(f"  Desired nozzle-tip first-layer height: {z_desired:.5f} mm")
+        print(f"  Nozzle Z compensation offset: {nozzle_z_comp_offset:.5f} mm")
+        print(f"  Target compensated machine Z: {compensated_first_layer_machine_z:.5f} mm")
+
         data_bt_string = auto_shift_first_layer_extrusion_min_z(
             data_bt_string,
-            desired_first_layer_z=z_desired,
+            desired_first_layer_z=compensated_first_layer_machine_z,
         )
     else:
         print("Flat test mode: shifting so first moving extrusion starts at desired first-layer height...")
