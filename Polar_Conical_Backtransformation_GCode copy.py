@@ -32,7 +32,6 @@ def read_fixed_header(path):
 def make_simple_start_gcode(
     nozzle_temp=240,
     bed_temp=60,
-    start_z_lift=10.0,
 ):
     """
     Simple starter G-code for first 4-axis printer tests.
@@ -55,11 +54,9 @@ M104 S{nozzle_temp} ; start heating nozzle
 M190 S{bed_temp} ; wait for bed temperature
 M109 S{nozzle_temp} ; wait for nozzle temperature
 G28 ; home all axes
-G90 ; make sure machine axes are absolute after homing
-M83 ; make sure extrusion is relative after homing
+G90 ; absolute positioning after homing
+M83 ; relative extrusion mode after homing
 G92 E0 ; reset extruder
-M220 S25 ; run at 25% speed for first hardware test
-G1 Z{start_z_lift:.3f} F2000 ; lift Z before starting print
 ; ------------------------------------------------------------
 ; BEGIN GENERATED 4-AXIS TOOLPATH
 ; ------------------------------------------------------------
@@ -102,46 +99,28 @@ def strip_original_header(data):
     print("  WARNING: '; MACHINE_START_GCODE_END' not found in G-code. Header not replaced.")
     return data
 
-def remove_everything_before_first_real_print_move(data):
+def remove_everything_before_first_layer_marker(data):
     """
-    Remove all slicer/body content before the first real model extrusion move.
+    Remove all slicer/body content before the first real layer marker.
 
-    Keeps comments from the first print layer onward only after we find the first
-    positive-extrusion G0/G1 move with X/Y coordinates.
-
-    This is more aggressive than remove_preprint_motion_moves(...).
-    Use it when we want:
-        custom simple start gcode
-        then directly model print moves
-        no Bambu startup/purge/wipe/calibration motion
+    This is better than starting at the first positive E move, because
+    Bambu/Orca can have purge/wipe extrusion before the actual model layer.
     """
     cleaned = []
-    found_first_print_move = False
+    found_layer = False
     removed_lines = 0
 
-    pattern_G = r'\AG[01] '
-    pattern_X = rf'X{NUM}'
-    pattern_Y = rf'Y{NUM}'
-    pattern_E = rf'E{NUM}'
+    layer_markers = (
+        '; CHANGE_LAYER',
+        '; Z_HEIGHT:',
+        ';LAYER_CHANGE',
+        '; layer num/',
+    )
 
     for row in data:
-        g_match = re.search(pattern_G, row)
-        x_match = re.search(pattern_X, row)
-        y_match = re.search(pattern_Y, row)
-        e_match = re.search(pattern_E, row)
-
-        is_positive_xy_extrusion = False
-
-        if g_match is not None and e_match is not None:
-            e_val = float(e_match.group(0).replace("E", ""))
-            has_xy = x_match is not None or y_match is not None
-
-            if e_val > 0 and has_xy:
-                is_positive_xy_extrusion = True
-
-        if not found_first_print_move:
-            if is_positive_xy_extrusion:
-                found_first_print_move = True
+        if not found_layer:
+            if any(marker in row for marker in layer_markers):
+                found_layer = True
                 cleaned.append(row)
             else:
                 removed_lines += 1
@@ -149,10 +128,10 @@ def remove_everything_before_first_real_print_move(data):
 
         cleaned.append(row)
 
-    print(f"  Removed {removed_lines} line(s) before first real positive-extrusion model move.")
+    print(f"  Removed {removed_lines} line(s) before first layer marker.")
 
-    if not found_first_print_move:
-        raise ValueError("Could not find first positive-extrusion model move.")
+    if not found_layer:
+        raise ValueError("Could not find first layer marker.")
 
     return cleaned
 
@@ -309,6 +288,163 @@ def auto_shift_cxzb_z(data_bt_string, desired_min_z):
         shifted_lines.append(row)
 
     return "\n".join(shifted_lines) + "\n"
+
+def auto_shift_first_layer_extrusion_min_z(data_bt_string, desired_first_layer_z):
+    """
+    Shift all generated CXZB Z values so the LOWEST positive-extrusion
+    move on the FIRST LAYER is at desired_first_layer_z.
+
+    This is the correct shift for true conical backtransform:
+        - ignores travel moves
+        - ignores E-only moves
+        - only looks at positive extrusion
+        - only looks at the first layer
+    """
+    pattern_Z = rf'Z{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    in_first_layer = False
+    first_layer_done = False
+
+    first_layer_extrusion_zs = []
+
+    for row in data_bt_string.splitlines():
+        stripped = row.strip()
+
+        # Start first layer at first layer marker.
+        if stripped.startswith("; CHANGE_LAYER") and not in_first_layer and not first_layer_done:
+            in_first_layer = True
+            continue
+
+        # Stop when second layer starts.
+        if stripped.startswith("; CHANGE_LAYER") and in_first_layer:
+            first_layer_done = True
+            break
+
+        if not in_first_layer:
+            continue
+
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        z_match = re.search(pattern_Z, row)
+        e_match = re.search(pattern_E, row)
+
+        if z_match is None or e_match is None:
+            continue
+
+        e_val = float(e_match.group(0).replace("E", ""))
+
+        if e_val <= 0:
+            continue
+
+        z_val = float(z_match.group(0).replace("Z", ""))
+        first_layer_extrusion_zs.append(z_val)
+
+    if not first_layer_extrusion_zs:
+        raise ValueError("Could not find any positive-extrusion Z moves on the first layer.")
+
+    min_first_layer_extrusion_z = min(first_layer_extrusion_zs)
+    max_first_layer_extrusion_z = max(first_layer_extrusion_zs)
+
+    z_shift = desired_first_layer_z - min_first_layer_extrusion_z
+
+    print(f"  First-layer positive-extrusion Z before shift:")
+    print(f"    min: {min_first_layer_extrusion_z:.5f} mm")
+    print(f"    max: {max_first_layer_extrusion_z:.5f} mm")
+    print(f"  Applying Z shift of {z_shift:.5f} mm so lowest first-layer extrusion is {desired_first_layer_z:.5f} mm")
+
+    def replace_z(match):
+        old_z = float(match.group(0).replace("Z", ""))
+        new_z = old_z + z_shift
+        return f"Z{new_z:.5f}"
+
+    shifted_lines = []
+
+    for row in data_bt_string.splitlines():
+        if row.startswith(("G0", "G1")):
+            row = re.sub(pattern_Z, replace_z, row, count=1)
+        shifted_lines.append(row)
+
+    return "\n".join(shifted_lines) + "\n"
+
+def lift_nonextrusion_moves_below_min_z(
+    data_bt_string,
+    min_allowed_z=0.0,
+    travel_safe_z=0.2,
+):
+    """
+    Lift non-extruding travel moves that dip below the bed.
+
+    Important:
+        - Positive-extrusion moves define the printed geometry.
+        - We do NOT lift the whole file.
+        - We only modify G0/G1 moves with no positive extrusion.
+        - If a positive-extrusion move is below min_allowed_z, raise an error.
+    """
+    pattern_Z = rf'Z{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    cleaned_lines = []
+    lifted_count = 0
+    lowest_lifted_z = None
+
+    for line_number, row in enumerate(data_bt_string.splitlines(), start=1):
+        if not row.startswith(("G0", "G1")):
+            cleaned_lines.append(row)
+            continue
+
+        z_match = re.search(pattern_Z, row)
+
+        if z_match is None:
+            cleaned_lines.append(row)
+            continue
+
+        z_val = float(z_match.group(0).replace("Z", ""))
+
+        if z_val >= min_allowed_z:
+            cleaned_lines.append(row)
+            continue
+
+        e_match = re.search(pattern_E, row)
+
+        is_positive_extrusion = False
+        if e_match is not None:
+            e_val = float(e_match.group(0).replace("E", ""))
+            is_positive_extrusion = e_val > 0
+
+        if is_positive_extrusion:
+            raise ValueError(
+                f"Positive-extrusion move below minimum Z after first-layer shift. "
+                f"Line {line_number}: Z={z_val:.5f}, min={min_allowed_z:.5f}. "
+                f"Row: {row}"
+            )
+
+        # Non-extruding travel/retract/wipe move below bed:
+        # lift just this move to travel_safe_z.
+        new_z = max(travel_safe_z, min_allowed_z)
+
+        def replace_z(match):
+            return f"Z{new_z:.5f}"
+
+        row = re.sub(pattern_Z, replace_z, row, count=1)
+
+        lifted_count += 1
+        if lowest_lifted_z is None or z_val < lowest_lifted_z:
+            lowest_lifted_z = z_val
+
+        cleaned_lines.append(row)
+
+    if lifted_count > 0:
+        print(
+            f"  Lifted {lifted_count} non-extrusion move(s) below Z{min_allowed_z:.5f} "
+            f"to Z{travel_safe_z:.5f}."
+        )
+        print(f"  Lowest lifted non-extrusion Z was {lowest_lifted_z:.5f} mm.")
+    else:
+        print("  No below-bed non-extrusion moves needed lifting.")
+
+    return "\n".join(cleaned_lines) + "\n"
 
 def make_safety_limits():
     """
@@ -608,6 +744,7 @@ def backtransform_data(
     b_sign=-1.0,
     safety_limits=None,
     machine_z_lift=0.0,
+    use_conical_z_backtransform=True,
 ):
     """
     Backtransform G-Code for a Bambu Lab Cartesian printer (A1).
@@ -714,8 +851,19 @@ def backtransform_data(
         y_vals = np.linspace(y_old_bt, y_new_bt, num_segm + 1)
 
         # Compute backtransformed Z by removing the cone offset at each segment point
+        # r_vals = np.sqrt((x_vals - bed_center_x)**2 + (y_vals - bed_center_y)**2)
+        # z_vals = z_layer - c * tan_a * r_vals
+
+        # Compute backtransformed Z.
         r_vals = np.sqrt((x_vals - bed_center_x)**2 + (y_vals - bed_center_y)**2)
-        z_vals = z_layer - c * tan_a * r_vals
+
+        if use_conical_z_backtransform:
+            # Full conical/non-planar mode.
+            z_vals = z_layer - c * tan_a * r_vals
+        else:
+            # Flat-bed first hardware test mode.
+            # Keeps the slicer's layer Z flat so the first layer can actually print on the bed.
+            z_vals = np.full_like(r_vals, z_layer)
 
         replacement_rows = ''
 
@@ -1176,6 +1324,177 @@ def clean_final_gcode_for_4axis_first_print(
 
     return "\n".join(cleaned_lines) + "\n"
 
+def auto_shift_cxzb_z_to_first_moving_extrusion(data_bt_string, desired_first_print_z):
+    """
+    Shift all generated CXZB Z values so the first real moving positive-extrusion
+    G0/G1 move starts at desired_first_print_z.
+
+    Ignores E-only prime/unretract moves like:
+        G1 E.8 F1200
+
+    Finds the first line like:
+        G1 C... X... Z... B... Epositive ... F...
+    """
+    pattern_C = rf'C{NUM}'
+    pattern_X = rf'X{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_B = rf'B{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    current_z = None
+    first_print_z = None
+    first_print_row = None
+
+    for row in data_bt_string.splitlines():
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        z_match = re.search(pattern_Z, row)
+        e_match = re.search(pattern_E, row)
+
+        if z_match is not None:
+            current_z = float(z_match.group(0).replace("Z", ""))
+
+        if e_match is None:
+            continue
+
+        e_val = float(e_match.group(0).replace("E", ""))
+
+        if e_val <= 0:
+            continue
+
+        has_motion_axis = (
+            re.search(pattern_C, row) is not None
+            or re.search(pattern_X, row) is not None
+            or re.search(pattern_Z, row) is not None
+            or re.search(pattern_B, row) is not None
+        )
+
+        if not has_motion_axis:
+            continue
+
+        if current_z is None:
+            continue
+
+        first_print_z = current_z
+        first_print_row = row
+        break
+
+    if first_print_z is None:
+        raise ValueError("Could not find first moving positive-extrusion G0/G1 move with known Z.")
+
+    z_shift = desired_first_print_z - first_print_z
+
+    print(f"  First moving positive-extrusion machine Z before shift: {first_print_z:.5f} mm")
+    print(f"  First moving positive-extrusion row: {first_print_row.strip()}")
+    print(f"  Applying Z shift of {z_shift:.5f} mm so first moving extrusion starts at {desired_first_print_z:.5f} mm")
+
+    def replace_z(match):
+        old_z = float(match.group(0).replace("Z", ""))
+        new_z = old_z + z_shift
+        return f"Z{new_z:.5f}"
+
+    shifted_lines = []
+
+    for row in data_bt_string.splitlines():
+        if row.startswith(("G0", "G1")):
+            row = re.sub(pattern_Z, replace_z, row, count=1)
+        shifted_lines.append(row)
+
+    return "\n".join(shifted_lines) + "\n"
+
+
+def keep_only_simple_4axis_print_gcode(gcode_string, keep_layer_comments=True):
+    """
+    Keep only simple custom 4-axis print G-code.
+
+    Keeps:
+        - simple start/end commands
+        - real G0/G1 C/X/Z/B machine moves
+        - optional layer comments
+
+    Removes:
+        - Bambu comments
+        - REMOVED_FOR_4AXIS_FIRST_PRINT audit comments
+        - E-only moves like G1 E.8 or G1 E-.8
+        - feedrate-only moves like G1 F1200
+        - WIPE_START / WIPE_END comments
+        - OBJECT_ID / FEATURE / LINE_WIDTH comments
+    """
+    simple_allowed_commands = {
+        "G90",
+        "G91",
+        "G92",
+        "G28",
+        "M83",
+        "M104",
+        "M109",
+        "M140",
+        "M190",
+        "M84",
+    }
+
+    cleaned_lines = []
+    removed_count = 0
+
+    for row in gcode_string.splitlines():
+        stripped = row.strip()
+
+        if stripped == "":
+            continue
+
+        # Keep only useful comments.
+        if stripped.startswith(";"):
+            if (
+                "SIMPLE 4-AXIS" in stripped
+                or "BEGIN GENERATED 4-AXIS TOOLPATH" in stripped
+                or "END GENERATED 4-AXIS TOOLPATH" in stripped
+                or "END FILE" in stripped
+            ):
+                cleaned_lines.append(row)
+                continue
+
+            if keep_layer_comments and (
+                stripped.startswith("; CHANGE_LAYER")
+                or stripped.startswith("; Z_HEIGHT:")
+                or stripped.startswith("; LAYER_HEIGHT:")
+            ):
+                cleaned_lines.append(row)
+                continue
+
+            removed_count += 1
+            continue
+
+        command = stripped.split()[0]
+
+        # Keep simple start/end commands.
+        if command in simple_allowed_commands:
+            cleaned_lines.append(row)
+            continue
+
+        # Only G0/G1 model motion from here.
+        if command not in {"G0", "G1"}:
+            removed_count += 1
+            continue
+
+        has_c = re.search(rf'(^|\s)C{NUM}', row) is not None
+        has_x = re.search(rf'(^|\s)X{NUM}', row) is not None
+        has_z = re.search(rf'(^|\s)Z{NUM}', row) is not None
+        has_b = re.search(rf'(^|\s)B{NUM}', row) is not None
+
+        has_machine_motion_axis = has_c or has_x or has_z or has_b
+
+        if has_machine_motion_axis:
+            cleaned_lines.append(row)
+            continue
+
+        # Remove E-only moves and feedrate-only moves.
+        removed_count += 1
+
+    print(f"  Model-only final cleanup removed {removed_count} line(s).")
+
+    return "\n".join(cleaned_lines) + "\n"
+
 def backtransform_file(
     path,
     output_dir,
@@ -1195,6 +1514,7 @@ def backtransform_file(
     b_sign=-1.0,
     safety_limits=None,
     machine_z_lift=0.0,
+    use_conical_z_backtransform=True,
 ):
     """
     Full pipeline:
@@ -1215,8 +1535,8 @@ def backtransform_file(
     print("Removing pre-print motion moves...")
     body = remove_preprint_motion_moves(body)
 
-    print("Removing everything before first real model extrusion...")
-    body = remove_everything_before_first_real_print_move(body)
+    print("Removing everything before first layer marker...")
+    body = remove_everything_before_first_layer_marker(body)
 
     print("Removing out-of-bounds non-print moves...")
     body = remove_out_of_bounds_nonprint_moves(
@@ -1232,7 +1552,6 @@ def backtransform_file(
     fixed_header = make_simple_start_gcode(
         nozzle_temp=240,
         bed_temp=60,
-        start_z_lift=10.0,
     )
 
     fixed_footer = make_simple_end_gcode(
@@ -1270,20 +1589,43 @@ def backtransform_file(
         b_sign=b_sign,
         safety_limits=safety_limits,
         machine_z_lift=machine_z_lift,
+        use_conical_z_backtransform=use_conical_z_backtransform,
     )
 
     data_bt_string = ''.join(data_bt)
 
-    # Automatically shift final machine Z after CXZB conversion.
-    # This replaces guessing machine_z_lift by hand.
-    data_bt_string = auto_shift_cxzb_z(data_bt_string, z_desired)
-
     print("Cleaning final G-code for first 4-axis hardware test...")
     data_bt_string = clean_final_gcode_for_4axis_first_print(
         data_bt_string,
-        max_feedrate_print=1200.0,   # 20 mm/s
-        max_feedrate_travel=3000.0,  # 50 mm/s
-        comment_removed_lines=True,
+        max_feedrate_print=1200.0,
+        max_feedrate_travel=3000.0,
+        comment_removed_lines=False,
+    )
+
+    print("Keeping only simple model-print G-code...")
+    data_bt_string = keep_only_simple_4axis_print_gcode(
+        data_bt_string,
+        keep_layer_comments=True,
+    )
+
+    if use_conical_z_backtransform:
+        print("Conical Z mode: shifting so lowest FIRST-LAYER EXTRUSION equals desired first-layer height...")
+        data_bt_string = auto_shift_first_layer_extrusion_min_z(
+            data_bt_string,
+            desired_first_layer_z=z_desired,
+        )
+    else:
+        print("Flat test mode: shifting so first moving extrusion starts at desired first-layer height...")
+        data_bt_string = auto_shift_cxzb_z_to_first_moving_extrusion(
+            data_bt_string,
+            desired_first_print_z=z_desired,
+        )
+    
+    print("Lifting any below-bed non-extrusion travel moves...")
+    data_bt_string = lift_nonextrusion_moves_below_min_z(
+        data_bt_string,
+        min_allowed_z=safety_limits["min_z"],
+        travel_safe_z=z_desired,
     )
 
     validate_final_cxzb_gcode(data_bt_string, safety_limits)
@@ -1346,7 +1688,7 @@ machine_z_lift = 0.0   # lift compensated CXZB Z so it stays above min_z
 fixed_extrusion = 0.0275  # constant E value applied to every extrusion move
 use_fixed_extrusion = False  # False = preserve slicer E values, True = force fixed E
 
-nozzle_offset = 43.0  # mm, replace with real value
+nozzle_offset = 43.5  # mm, replace with real value
 b_sign = -1.0         # flip to +1 if B tilts wrong way
 c_sign = 1.0          # flip to -1 if bed rotates opposite direction
 
@@ -1387,6 +1729,8 @@ safety_limits["limit_tolerance_deg"] = 0.001
 # Shadow box is OFF until you measure the head/nozzle assembly.
 safety_limits["enable_shadow_box_check"] = False
 
+use_conical_z_backtransform = True  # False = flat-bed first hardware print test #should be True for real conical backtransform
+
 # TODO REPLACE LATER:
 # Fill these in when you know the real print head and bed geometry.
 safety_limits["bed_radius_mm"] = 150.0
@@ -1417,4 +1761,5 @@ backtransform_file(
     b_sign            = b_sign,
     safety_limits     = safety_limits,
     machine_z_lift    = machine_z_lift,
+    use_conical_z_backtransform = use_conical_z_backtransform,
 )
