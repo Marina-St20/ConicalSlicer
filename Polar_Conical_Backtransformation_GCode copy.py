@@ -198,6 +198,212 @@ def auto_shift_cxzb_z(data_bt_string, desired_min_z):
 
     return "\n".join(shifted_lines) + "\n"
 
+def make_safety_limits():
+    """
+    Safety limits for the 4-axis printer.
+
+    Machine axes:
+        X = radial machine axis, mm
+        Z = vertical machine axis, mm
+        C = bed rotation, degrees
+        B = head/nozzle rotation, degrees
+
+    Current known limits:
+        -150 <= X <= 150 mm
+           0 <= Z <= 280 mm
+        C is continuous / unlimited
+        -120 <= B <= 120 degrees
+
+    Shadow-box values are placeholders for now.
+    Fill them in later when the real head/bed geometry is known.
+    """
+    return {
+        # -----------------------------------------------------------
+        # Real machine axis limits
+        # -----------------------------------------------------------
+
+        "min_x": -150.0,
+        # Real printer limit: minimum X/radial position in mm.
+
+        "max_x": 150.0,
+        # Real printer limit: maximum X/radial position in mm.
+
+        "min_z": 0.0,
+        # Real printer limit: minimum Z in mm.
+
+        "max_z": 280.0,
+        # Real printer limit: maximum Z in mm.
+
+        "min_b": -120.0,
+        # Real printer limit: minimum B angle in degrees.
+
+        "max_b": 120.0,
+        # Real printer limit: maximum B angle in degrees.
+
+        "min_c": None,
+        # C axis is currently treated as unlimited.
+        # TODO LATER:
+        # If C is not actually continuous, replace None with the real minimum C angle.
+
+        "max_c": None,
+        # C axis is currently treated as unlimited.
+        # TODO LATER:
+        # If C is not actually continuous, replace None with the real maximum C angle.
+
+        # -----------------------------------------------------------
+        # Shadow-box placeholders
+        # -----------------------------------------------------------
+        # These are intentionally disabled for now.
+        # Turn on later after measuring the print head / nozzle assembly.
+
+        "enable_shadow_box_check": False,
+
+        "bed_radius_mm": 150.0,
+        # TODO REPLACE LATER:
+        # Set this to the real usable rotating-bed radius.
+        # For now this matches the +/-150 mm X limit.
+
+        "head_shadow_radius_mm": 0.0,
+        # TODO REPLACE LATER:
+        # Approximate horizontal clearance radius of the head/nozzle assembly.
+        # Example later: 25.0, 35.0, 50.0, etc.
+
+        "head_shadow_z_below_nozzle_mm": 0.0,
+        # TODO REPLACE LATER:
+        # Distance below the nozzle tip occupied by anything on the head.
+        # Usually this should stay 0.0 unless hardware protrudes below the nozzle.
+
+        "head_shadow_z_above_nozzle_mm": 0.0,
+        # TODO REPLACE LATER:
+        # Vertical clearance needed above the nozzle for head/gantry geometry.
+
+        "safety_margin_mm": 0.0,
+        # TODO LATER:
+        # Optional extra margin to shrink the safe X/Z envelope.
+        # Example: 2.0 means stay 2 mm away from X/Z limits.
+    }
+
+
+def check_axis_limit(axis_name, value, min_value, max_value):
+    """
+    Check one machine axis.
+
+    If min_value or max_value is None, that side is treated as unlimited.
+    """
+    if min_value is not None and value < min_value:
+        raise ValueError(
+            f"Safety limit error: {axis_name} below minimum. "
+            f"{axis_name}={value:.3f}, min={min_value:.3f}"
+        )
+
+    if max_value is not None and value > max_value:
+        raise ValueError(
+            f"Safety limit error: {axis_name} above maximum. "
+            f"{axis_name}={value:.3f}, max={max_value:.3f}"
+        )
+
+
+def check_safety_limits(
+    c_axis,
+    x_axis,
+    z_axis,
+    b_axis,
+    safety_limits,
+    line_context="",
+):
+    """
+    Check generated 4-axis machine coordinates against safety limits.
+
+    This should be called after Cartesian XYZ has been converted into
+    machine-native C/X/Z/B coordinates.
+    """
+    if safety_limits is None:
+        return
+
+    margin = safety_limits.get("safety_margin_mm", 0.0)
+
+    min_x = safety_limits["min_x"] + margin
+    max_x = safety_limits["max_x"] - margin
+    min_z = safety_limits["min_z"] + margin
+    max_z = safety_limits["max_z"] - margin
+
+    check_axis_limit("X", x_axis, min_x, max_x)
+    check_axis_limit("Z", z_axis, min_z, max_z)
+    check_axis_limit("B", b_axis, safety_limits["min_b"], safety_limits["max_b"])
+    check_axis_limit("C", c_axis, safety_limits["min_c"], safety_limits["max_c"])
+
+    # Optional rough shadow-box check.
+    # This is a placeholder collision envelope, not a full CAD collision model.
+    if safety_limits.get("enable_shadow_box_check", False):
+        bed_radius = safety_limits["bed_radius_mm"]
+        head_shadow_radius = safety_limits["head_shadow_radius_mm"]
+        z_below = safety_limits["head_shadow_z_below_nozzle_mm"]
+        z_above = safety_limits["head_shadow_z_above_nozzle_mm"]
+
+        shadow_x_min = x_axis - head_shadow_radius
+        shadow_x_max = x_axis + head_shadow_radius
+
+        if shadow_x_min < safety_limits["min_x"] or shadow_x_max > safety_limits["max_x"]:
+            raise ValueError(
+                f"Shadow-box error: head shadow exceeds X travel. "
+                f"shadow X range={shadow_x_min:.3f} to {shadow_x_max:.3f}. "
+                f"{line_context}"
+            )
+
+        if abs(x_axis) + head_shadow_radius > bed_radius:
+            raise ValueError(
+                f"Shadow-box error: head shadow exceeds bed radius. "
+                f"abs(X)+shadow={abs(x_axis) + head_shadow_radius:.3f}, "
+                f"bed_radius={bed_radius:.3f}. "
+                f"{line_context}"
+            )
+
+        shadow_z_min = z_axis - z_below
+        shadow_z_max = z_axis + z_above
+
+        if shadow_z_min < safety_limits["min_z"]:
+            raise ValueError(
+                f"Shadow-box error: head shadow below min Z. "
+                f"shadow_z_min={shadow_z_min:.3f}. "
+                f"{line_context}"
+            )
+
+        if shadow_z_max > safety_limits["max_z"]:
+            raise ValueError(
+                f"Shadow-box error: head shadow above max Z. "
+                f"shadow_z_max={shadow_z_max:.3f}. "
+                f"{line_context}"
+            )
+
+
+def print_safety_limits_summary(safety_limits):
+    """
+    Print active safety settings before conversion.
+    """
+    if safety_limits is None:
+        print("  Safety limits: DISABLED")
+        return
+
+    print("  Safety limits: ENABLED")
+    print(f"    X: {safety_limits['min_x']} to {safety_limits['max_x']} mm")
+    print(f"    Z: {safety_limits['min_z']} to {safety_limits['max_z']} mm")
+    print(f"    B: {safety_limits['min_b']} to {safety_limits['max_b']} deg")
+
+    if safety_limits["min_c"] is None and safety_limits["max_c"] is None:
+        print("    C: unlimited / continuous")
+    else:
+        print(f"    C: {safety_limits['min_c']} to {safety_limits['max_c']} deg")
+
+    if safety_limits.get("enable_shadow_box_check", False):
+        print("    Shadow box: ENABLED")
+        print(f"      bed_radius_mm:                 {safety_limits['bed_radius_mm']}")
+        print(f"      head_shadow_radius_mm:         {safety_limits['head_shadow_radius_mm']}")
+        print(f"      head_shadow_z_below_nozzle_mm: {safety_limits['head_shadow_z_below_nozzle_mm']}")
+        print(f"      head_shadow_z_above_nozzle_mm: {safety_limits['head_shadow_z_above_nozzle_mm']}")
+    else:
+        print("    Shadow box: DISABLED")
+
+
 def backtransform_data(
     data,
     cone_type,
@@ -345,18 +551,17 @@ def backtransform_data(
                 b_sign=b_sign,
             )
 
-            if safety_limits is not None:
-                if not (safety_limits["min_radius"] <= x_axis <= safety_limits["max_radius"]):
-                    raise ValueError(f"Radius X out of range: {x_axis:.3f}")
-
-                # Do not fail on low Z here.
-                # We auto-shift the final generated CXZB G-code upward after this pass.
-                # Still fail if Z is above the machine maximum.
-                if z_axis > safety_limits["max_z"]:
-                    raise ValueError(f"Z above max range: {z_axis:.3f}")
-
-                if not (safety_limits["min_b"] <= b_axis <= safety_limits["max_b"]):
-                    raise ValueError(f"B out of range: {b_axis:.3f}")
+            check_safety_limits(
+                c_axis=c_axis,
+                x_axis=x_axis,
+                z_axis=z_axis,
+                b_axis=b_axis,
+                safety_limits=safety_limits,
+                line_context=(
+                    f"Generated move: "
+                    f"C{c_axis:.3f} X{x_axis:.3f} Z{z_axis:.3f} B{b_axis:.3f}"
+                ),
+            )
 
             new_line = (
                 f"{command} "
@@ -568,6 +773,8 @@ def backtransform_file(
     else:
         print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, preserving original relative E...")
 
+    print_safety_limits_summary(safety_limits)
+
     data_bt = backtransform_data(
         body,
         cone_type,
@@ -643,12 +850,46 @@ nozzle_offset = 43.0  # mm, replace with real value
 b_sign = -1.0         # flip to +1 if B tilts wrong way
 c_sign = 1.0          # flip to -1 if bed rotates opposite direction
 
-min_radius = 0.0
-max_radius = 150.0    # replace with your machine limit
-min_z = 0.0
-max_z = 250.0         # replace with your machine limit
-min_b = -45.0
-max_b = 45.0
+# min_radius = 0.0
+# max_radius = 150.0    # replace with your machine limit
+# min_z = 0.0
+# max_z = 250.0         # replace with your machine limit
+# min_b = -45.0
+# max_b = 45.0
+
+# ---------------------------------------------------------------
+# Safety limits / shadow box
+# ---------------------------------------------------------------
+
+safety_limits = make_safety_limits()
+
+# Real known 4-axis printer limits:
+safety_limits["min_x"] = -150.0
+safety_limits["max_x"] = 150.0
+
+safety_limits["min_z"] = 0.0
+safety_limits["max_z"] = 280.0
+
+safety_limits["min_b"] = -120.0
+safety_limits["max_b"] = 120.0
+
+# C is continuous / unlimited.
+safety_limits["min_c"] = None
+safety_limits["max_c"] = None
+
+# Optional extra safety margin.
+# Keep 0.0 while debugging. Later, use something like 1.0 or 2.0 mm.
+safety_limits["safety_margin_mm"] = 0.0
+
+# Shadow box is OFF until you measure the head/nozzle assembly.
+safety_limits["enable_shadow_box_check"] = False
+
+# TODO REPLACE LATER:
+# Fill these in when you know the real print head and bed geometry.
+safety_limits["bed_radius_mm"] = 150.0
+safety_limits["head_shadow_radius_mm"] = 0.0
+safety_limits["head_shadow_z_below_nozzle_mm"] = 0.0
+safety_limits["head_shadow_z_above_nozzle_mm"] = 0.0
 
 # ---------------------------------------------------------------
 # Run
@@ -671,6 +912,6 @@ backtransform_file(
     use_fixed_e       = use_fixed_extrusion,
     c_sign            = c_sign,
     b_sign            = b_sign,
-    safety_limits     = None,
+    safety_limits     = safety_limits,
     machine_z_lift    = machine_z_lift,
 )
