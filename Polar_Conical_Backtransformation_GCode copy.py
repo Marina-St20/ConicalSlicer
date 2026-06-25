@@ -29,6 +29,64 @@ def read_fixed_header(path):
     with open(path, 'r', encoding='utf-8') as f:
         return f.read()
 
+def make_simple_start_gcode(
+    nozzle_temp=240,
+    bed_temp=60,
+    start_z_lift=10.0,
+):
+    """
+    Simple starter G-code for first 4-axis printer tests.
+
+    Assumptions:
+        G90 = absolute machine axes
+        M83 = relative extrusion
+        G28 = home machine
+        M190 = set bed temp and wait
+        M109 = set nozzle temp and wait
+    """
+    return f"""\
+; ------------------------------------------------------------
+; SIMPLE 4-AXIS START G-CODE
+; ------------------------------------------------------------
+G90 ; absolute positioning for machine axes
+M83 ; relative extrusion mode
+M140 S{bed_temp} ; start heating bed
+M104 S{nozzle_temp} ; start heating nozzle
+M190 S{bed_temp} ; wait for bed temperature
+M109 S{nozzle_temp} ; wait for nozzle temperature
+G28 ; home all axes
+G90 ; make sure machine axes are absolute after homing
+M83 ; make sure extrusion is relative after homing
+G92 E0 ; reset extruder
+M220 S25 ; run at 25% speed for first hardware test
+G1 Z{start_z_lift:.3f} F2000 ; lift Z before starting print
+; ------------------------------------------------------------
+; BEGIN GENERATED 4-AXIS TOOLPATH
+; ------------------------------------------------------------
+"""
+
+
+def make_simple_end_gcode(
+    end_z_lift=10.0,
+):
+    """
+    Simple end G-code for first 4-axis printer tests.
+    """
+    return f"""\
+; ------------------------------------------------------------
+; END GENERATED 4-AXIS TOOLPATH
+; SIMPLE 4-AXIS END G-CODE
+; ------------------------------------------------------------
+G91 ; relative positioning for lift
+G1 Z{end_z_lift:.3f} F2000 ; lift Z out of the way
+G90 ; back to absolute positioning
+M104 S0 ; turn off nozzle heater
+M140 S0 ; turn off bed heater
+M84 ; disable motors
+; ------------------------------------------------------------
+; END FILE
+; ------------------------------------------------------------
+"""
 
 def strip_original_header(data):
     """
@@ -942,6 +1000,128 @@ def remove_out_of_bounds_nonprint_moves(
     print(f"  Commented out {removed_lines} out-of-bounds non-print move(s).")
     return cleaned
 
+def clean_final_gcode_for_4axis_first_print(
+    gcode_string,
+    max_feedrate_print=1200.0,
+    max_feedrate_travel=3000.0,
+    comment_removed_lines=True,
+):
+    """
+    Final cleanup for first 4-axis hardware tests.
+
+    Does three things:
+        1. Comments out unsupported arc/plane commands: G2, G3, G17
+        2. Comments out Bambu/Orca-specific commands
+        3. Clamps high feedrates to safer first-test values
+
+    max_feedrate_print:
+        Max feedrate for extrusion moves, mm/min.
+        Example: 1200 = 20 mm/s
+
+    max_feedrate_travel:
+        Max feedrate for non-extrusion travel moves, mm/min.
+        Example: 3000 = 50 mm/s
+    """
+    pattern_F = rf'F{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    # Commands from the uploaded file that are Bambu/Orca-specific or suspicious
+    # for a custom 4-axis controller.
+    blocked_commands = {
+        # Arc / plane commands that your current converter does not backtransform.
+        "G2",
+        "G3",
+        "G17",
+
+        # Bambu / Orca / printer-specific commands found in the generated file.
+        "G392",
+        "M73",
+        "M73.2",
+        "M201.2",
+        "M620",
+        "M621",
+        "M622",
+        "M623",
+        "M971",
+        "M981",
+        "M991",
+        "M1002",
+        "M1003",
+        "M1006",
+        "T255",
+
+        # Extra cleanup for custom 4-axis first print.
+        "M17",
+        "M18",
+        "M220",
+
+        # accelration changes - let printer/controller use its own conservative acceleration settings
+        "M17",
+        "M18",
+        "M220",
+        "M204", #acceleration
+        "M106", #fan command?
+    }
+
+    cleaned_lines = []
+
+    removed_counts = {}
+    clamped_feedrate_count = 0
+
+    for row in gcode_string.splitlines():
+        stripped = row.strip()
+
+        if stripped == "" or stripped.startswith(";"):
+            cleaned_lines.append(row)
+            continue
+
+        command = stripped.split()[0]
+
+        if command in blocked_commands:
+            removed_counts[command] = removed_counts.get(command, 0) + 1
+
+            if comment_removed_lines:
+                cleaned_lines.append(f"; REMOVED_FOR_4AXIS_FIRST_PRINT: {row}")
+            continue
+
+        # Clamp feedrates on G0/G1 moves.
+        if command in {"G0", "G1"}:
+            f_match = re.search(pattern_F, row)
+            e_match = re.search(pattern_E, row)
+
+            if f_match is not None:
+                old_f = float(f_match.group(0).replace("F", ""))
+
+                is_print_move = False
+                if e_match is not None:
+                    e_val = float(e_match.group(0).replace("E", ""))
+                    is_print_move = e_val > 0
+
+                if is_print_move:
+                    new_f = min(old_f, max_feedrate_print)
+                else:
+                    new_f = min(old_f, max_feedrate_travel)
+
+                if new_f < old_f:
+                    clamped_feedrate_count += 1
+                    row = re.sub(pattern_F, f"F{new_f:.1f}", row, count=1)
+
+        cleaned_lines.append(row)
+
+    print("  Final 4-axis cleanup summary:")
+
+    if removed_counts:
+        for command in sorted(removed_counts.keys()):
+            print(f"    Commented out {removed_counts[command]} {command} command(s).")
+    else:
+        print("    No blocked Bambu/arc commands found.")
+
+    print(f"    Clamped feedrate on {clamped_feedrate_count} G0/G1 move(s).")
+    print(f"    Max print feedrate:  {max_feedrate_print:.1f} mm/min")
+    print(f"    Max travel feedrate: {max_feedrate_travel:.1f} mm/min")
+
+    return "\n".join(cleaned_lines) + "\n"
+
 def backtransform_file(
     path,
     output_dir,
@@ -990,7 +1170,17 @@ def backtransform_file(
         cartesian_max_y=256.0,
     )
 
-    fixed_header = read_fixed_header(fixed_header_path)
+    # fixed_header = read_fixed_header(fixed_header_path)
+
+    fixed_header = make_simple_start_gcode(
+        nozzle_temp=240,
+        bed_temp=60,
+        start_z_lift=10.0,
+    )
+
+    fixed_footer = make_simple_end_gcode(
+        end_z_lift=10.0,
+    )
 
     if bed_center_x is None or bed_center_y is None:
         print("Auto-detecting bed center from G-code bounding box...")
@@ -1031,6 +1221,14 @@ def backtransform_file(
     # This replaces guessing machine_z_lift by hand.
     data_bt_string = auto_shift_cxzb_z(data_bt_string, z_desired)
 
+    print("Cleaning final G-code for first 4-axis hardware test...")
+    data_bt_string = clean_final_gcode_for_4axis_first_print(
+        data_bt_string,
+        max_feedrate_print=1200.0,   # 20 mm/s
+        max_feedrate_travel=3000.0,  # 50 mm/s
+        comment_removed_lines=True,
+    )
+
     validate_final_cxzb_gcode(data_bt_string, safety_limits)
 
     #data_bt = [row + ' \n' for row in data_bt_string.split('\n')]
@@ -1040,9 +1238,18 @@ def backtransform_file(
     #data_bt_string = ''.join(data_bt)
 
     # Prepend fixed header (ensure it ends with a newline before body)
+    # if not fixed_header.endswith('\n'):
+    #     fixed_header += '\n'
+    # final_output = fixed_header + data_bt_string
+
+    # Add simple start/end G-code around generated body.
     if not fixed_header.endswith('\n'):
         fixed_header += '\n'
-    final_output = fixed_header + data_bt_string
+
+    if not fixed_footer.endswith('\n'):
+        fixed_footer += '\n'
+
+    final_output = fixed_header + data_bt_string + fixed_footer
 
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
@@ -1061,7 +1268,7 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_benchy_tri_supports_2_30deg_transformed_PLA_1h5m.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_Side Dogbone_30deg_transformed_PLA_49m30s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
