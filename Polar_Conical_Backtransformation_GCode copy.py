@@ -48,7 +48,7 @@ def make_simple_start_gcode(
 ; SIMPLE 4-AXIS START G-CODE
 ; ------------------------------------------------------------
 G90 ; absolute positioning for machine axes
-M83 ; relative extrusion mode
+M82 ; absolute extrusion mode
 M140 S{bed_temp} ; start heating bed
 M104 S{nozzle_temp} ; start heating nozzle
 M190 S{bed_temp} ; wait for bed temperature
@@ -56,7 +56,6 @@ M109 S{nozzle_temp} ; wait for nozzle temperature
 G28 ; home all axes
 G90 ; absolute positioning after homing
 M83 ; relative extrusion mode after homing
-G92 E0 ; reset extruder
 ; ------------------------------------------------------------
 ; BEGIN GENERATED 4-AXIS TOOLPATH
 ; ------------------------------------------------------------
@@ -573,10 +572,10 @@ def check_safety_limits(
 
     margin = safety_limits.get("safety_margin_mm", 0.0)
 
-    min_x = safety_limits["min_x"] + margin
-    max_x = safety_limits["max_x"] - margin
-    min_z = safety_limits["min_z"] + margin
-    max_z = safety_limits["max_z"] - margin
+    min_x = safety_limits["min_x"] + margin if safety_limits["min_x"] is not None else None
+    max_x = safety_limits["max_x"] - margin if safety_limits["max_x"] is not None else None
+    min_z = safety_limits["min_z"] + margin if safety_limits["min_z"] is not None else None
+    max_z = safety_limits["max_z"] - margin if safety_limits["max_z"] is not None else None
 
     tolerance_mm = safety_limits.get("limit_tolerance_mm", 0.0)
     tolerance_deg = safety_limits.get("limit_tolerance_deg", 0.0)
@@ -1468,9 +1467,9 @@ def keep_only_simple_4axis_print_gcode(gcode_string, keep_layer_comments=True):
         command = stripped.split()[0]
 
         # Keep simple start/end commands.
-        if command in simple_allowed_commands:
-            cleaned_lines.append(row)
-            continue
+        # if command in simple_allowed_commands:
+        #     cleaned_lines.append(row)
+        #     continue
 
         # Only G0/G1 model motion from here.
         if command not in {"G0", "G1"}:
@@ -1621,12 +1620,12 @@ def backtransform_file(
             desired_first_print_z=z_desired,
         )
     
-    print("Lifting any below-bed non-extrusion travel moves...")
-    data_bt_string = lift_nonextrusion_moves_below_min_z(
-        data_bt_string,
-        min_allowed_z=safety_limits["min_z"],
-        travel_safe_z=z_desired,
-    )
+    # print("Lifting any below-bed non-extrusion travel moves...")
+    # data_bt_string = lift_nonextrusion_moves_below_min_z(
+    #     data_bt_string,
+    #     min_allowed_z=safety_limits["min_z"],
+    #     travel_safe_z=z_desired,
+    # )
 
     validate_final_cxzb_gcode(data_bt_string, safety_limits)
 
@@ -1709,7 +1708,10 @@ safety_limits = make_safety_limits()
 safety_limits["min_x"] = -150.0
 safety_limits["max_x"] = 150.0
 
-safety_limits["min_z"] = 0.0
+# Machine Z can be negative because B-axis/nozzle-angle compensation
+# can place the pivot/axis below Z0 while the nozzle tip is still correct.
+# During conical debugging, do not enforce a lower machine-Z clamp.
+safety_limits["min_z"] = None
 safety_limits["max_z"] = 280.0
 
 safety_limits["min_b"] = -120.0
