@@ -102,6 +102,60 @@ def strip_original_header(data):
     print("  WARNING: '; MACHINE_START_GCODE_END' not found in G-code. Header not replaced.")
     return data
 
+def remove_everything_before_first_real_print_move(data):
+    """
+    Remove all slicer/body content before the first real model extrusion move.
+
+    Keeps comments from the first print layer onward only after we find the first
+    positive-extrusion G0/G1 move with X/Y coordinates.
+
+    This is more aggressive than remove_preprint_motion_moves(...).
+    Use it when we want:
+        custom simple start gcode
+        then directly model print moves
+        no Bambu startup/purge/wipe/calibration motion
+    """
+    cleaned = []
+    found_first_print_move = False
+    removed_lines = 0
+
+    pattern_G = r'\AG[01] '
+    pattern_X = rf'X{NUM}'
+    pattern_Y = rf'Y{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    for row in data:
+        g_match = re.search(pattern_G, row)
+        x_match = re.search(pattern_X, row)
+        y_match = re.search(pattern_Y, row)
+        e_match = re.search(pattern_E, row)
+
+        is_positive_xy_extrusion = False
+
+        if g_match is not None and e_match is not None:
+            e_val = float(e_match.group(0).replace("E", ""))
+            has_xy = x_match is not None or y_match is not None
+
+            if e_val > 0 and has_xy:
+                is_positive_xy_extrusion = True
+
+        if not found_first_print_move:
+            if is_positive_xy_extrusion:
+                found_first_print_move = True
+                cleaned.append(row)
+            else:
+                removed_lines += 1
+            continue
+
+        cleaned.append(row)
+
+    print(f"  Removed {removed_lines} line(s) before first real positive-extrusion model move.")
+
+    if not found_first_print_move:
+        raise ValueError("Could not find first positive-extrusion model move.")
+
+    return cleaned
+
 
 def detect_bed_center(data):
     """
@@ -1160,6 +1214,9 @@ def backtransform_file(
 
     print("Removing pre-print motion moves...")
     body = remove_preprint_motion_moves(body)
+
+    print("Removing everything before first real model extrusion...")
+    body = remove_everything_before_first_real_print_move(body)
 
     print("Removing out-of-bounds non-print moves...")
     body = remove_out_of_bounds_nonprint_moves(
