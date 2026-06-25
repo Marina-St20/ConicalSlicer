@@ -3,6 +3,7 @@ import time
 import numpy as np
 import trimesh
 
+import FindSupportFaces
 
 def load_mesh(path):
     mesh = trimesh.load_mesh(path)
@@ -98,10 +99,19 @@ def main():
     start_time = time.perf_counter()
     dimensions = get_size(mesh)
     supports = mesh
+    centroids = face_centroids(mesh)
     z_threshold = 5
     offset = -.2
-    downward = downward_faces(mesh, z_threshold=60, height_threshold=z_threshold)
-    centroids = face_centroids(mesh)
+    _, fi = FindSupportFaces.cast_ring(mesh, 0, [0,0,1],1,0)
+    downward = mesh.faces[fi[mesh.face_normals[fi][:,2] < -0.5]]
+    face = centroids[61772]
+    support = trimesh.creation.cylinder(1, segment=[[0,0,36.59399],[0,0,8.52]], sections=3)
+    supports = trimesh.util.concatenate(supports,support)
+    print(f"Downward faces: {downward}")
+    print(f"Locs: {_}")
+    downward = np.append(downward, downward_faces(mesh, z_threshold=60, height_threshold=z_threshold))
+    print(f"Downward faces: {downward}")
+
 
     for fi in downward:
         face = centroids[int(fi)]
@@ -109,7 +119,7 @@ def main():
         vertices = mesh.vertices[_face]
         # radius = np.linalg.norm(vertices[0]-vertices[1])/3
         radius = 1
-        if check_clearance(supports,int(fi),face,5,-1,(0,1), z_threshold=z_threshold): continue
+        if check_clearance(supports,int(fi),face,3,-1,(0,1), z_threshold=z_threshold): continue
         if face[2] < z_threshold: continue
 
         # locs is the xyz coordinates for each face, tris is the index of each
