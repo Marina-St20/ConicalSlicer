@@ -40,7 +40,7 @@ def face_centroids(mesh):
     return mesh.triangles_center
 
 
-def cast_down(mesh, face_index, centroid=None, offset=-1e-8, z_threshold=-1e-9):
+def cast_down(mesh, face_index, centroid=None, offset=-1e-8, z_threshold=1e-9):
     lowest_z = mesh.bounds[0,2]
     if (centroid is None):
         centroids = face_centroids(mesh)
@@ -107,8 +107,9 @@ def main():
         face = centroids[int(fi)]
         _face = mesh.faces[int(fi)]
         vertices = mesh.vertices[_face]
-        radius = np.linalg.norm(vertices[0]-vertices[1])/3
-        if check_clearance(supports,int(fi),face,5,-2,(0,1), z_threshold=z_threshold): continue
+        # radius = np.linalg.norm(vertices[0]-vertices[1])/3
+        radius = 1
+        if check_clearance(supports,int(fi),face,5,-1,(0,1), z_threshold=z_threshold): continue
         if face[2] < z_threshold: continue
 
         # locs is the xyz coordinates for each face, tris is the index of each
@@ -140,6 +141,7 @@ def main():
     print(f"Total faces: {len(mesh.faces)}")
     print(f"Support faces: {len(supports.faces) - len(mesh.faces)}")
     print(f"Time to generate: {end_time - start_time}")
+    supports.show()
 
     
 

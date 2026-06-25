@@ -4,6 +4,7 @@ import numpy as np
 import trimesh
 import vispy
 from vispy.plot import Fig
+import TrimeshTesting
 
 def load_mesh(path):
     mesh = trimesh.load_mesh(path)
@@ -17,6 +18,7 @@ def load_mesh(path):
     except Exception:
         pass
     mesh.process(validate=True)
+    mesh.unmerge_vertices()
     return mesh
 
 def get_size(mesh):
@@ -54,10 +56,13 @@ def cast_box(mesh, divisions=50):
 
     return locations, index_tri
 
-def show_regions(mesh, face_indices, color=[1, 0, 0, 1]):
+def show_regions(mesh, face_indices, color=[1, 0, 0, 1], colors=None):
     # Visualize the mesh with specified faces highlighted in a different color.
-    face_colors = np.tile([0.5, 0.5, 0.5, 1], (len(mesh.faces), 1))  # Default color for all faces
-    face_colors[face_indices] = color  # Highlight specified faces
+    face_colors = np.tile([0.5, 0.5, 0.5, .1], (len(mesh.faces), 1))  # Default color for all faces
+    if colors is not None:
+        face_colors[face_indices] = colors[face_indices]/255
+    else:
+        face_colors[face_indices] = color  # Highlight specified faces
     mesh.visual.face_colors = face_colors
     mesh.show()
 
@@ -73,11 +78,47 @@ def main():
     face_indices = np.empty(0, dtype=int)
     bounds = mesh.bounds
     dimensions = mesh.extents
+    normals = mesh.face_normals.copy()
+    colors = mesh.visual.face_colors
+    center = mesh.bounding_box.centroid.copy()
+    center[2] = 0
+    print(f"Mesh center: {center}, dimensions: {dimensions}")
 
     for i in range(int(max(dimensions[0], dimensions[1]) / 2)):
-        radius = i
-        faces, fi = cast_ring(mesh, radius, origin=[0, 0, 0], division_base=1, angle_offset=0)
+        ring_radius = i
+        ring_locs, fi = cast_ring(mesh, ring_radius, origin=center, division_base=1, angle_offset=0)
         face_indices = np.append(face_indices, fi)
+        print(f"Ring {i}: Found {len(fi)} faces.")
+    print(f"{normals}")
+    for i in range(len(mesh.faces)):
+        red = (-normals[i][2] + 1.01) * 125
+        print(f"{red}")
+        green = (np.max([normals[i][0], normals[i][1]]) + 1.01) * 70
+        blue = (normals[i][0] + 1.01) * 70
+        colors[i] = [red, green, green/2, 255]
+    print(f"{colors}")
+
+    # for j in face_indices:
+    #     face = mesh.triangles_center[j]
+    #     offset = -.2
+    #     locs = None
+    #     radius = .2
+    #     print(f"Face {j}: {face}, normal: {normals[j]}")
+    #     if normals[j][2] < -.5:
+    #         _, locs, _ = TrimeshTesting.cast_down(mesh, j, face, offset=-1, z_threshold=5)
+    #     if locs is not None and len(locs) > 0:
+    #     # Put cylinder with radius of inscribed circle of face down to top intersected face z + offset
+    #         intersection = locs[0]
+    #         print(f"Base: {intersection}")
+    #         support_root = face.copy()
+    #         support_root[2] = intersection[2]
+    #         support = trimesh.creation.cylinder(radius, segment=[face+[0,0,offset],support_root], sections=3)
+    #     else: 
+    #         # Put cylinder w radius of inscribed circle down to z-bounding box
+    #         support_root = face.copy()
+    #         support_root[2] = 0
+    #         support = trimesh.creation.cylinder(radius,segment=[face+[0,0,offset],support_root], sections=3)
+    #     mesh = trimesh.util.concatenate([mesh, support])
 
     # Uniform sampling of the mesh using box casting
     # box_faces, box_fi = cast_box(mesh, divisions=10)
@@ -87,14 +128,15 @@ def main():
     vertices = np.unique(mesh.faces[face_indices].ravel())
     vertices = mesh.vertices[vertices]
 
-    fig = Fig()
-    ax_x = fig[0, 0]
+    # fig = Fig()
+    # ax_x = fig[0, 0]
 
-    ax_x.plot((vertices[:, 0], vertices[:,1], vertices[:, 2]), width=.01)
-    ax_x.view.camera = 'arcball'
-    fig.show(run=True)
+    # ax_x.plot((vertices[:, 0], vertices[:,1], vertices[:, 2]), width=.01)
+    # ax_x.view.camera = 'arcball'
+    # fig.show(run=True)
 
-    show_regions(mesh, face_indices)
+    show_regions(mesh, face_indices, colors=colors)
+    # mesh.show()
 
 
 if __name__ == "__main__":
