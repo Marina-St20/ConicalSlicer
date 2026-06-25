@@ -895,7 +895,7 @@ dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlic
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  30         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  45         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 

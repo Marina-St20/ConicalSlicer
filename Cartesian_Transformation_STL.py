@@ -26,73 +26,6 @@ def refinement_triangulation(triangle_array, num_iterations):
         refined_array = np.reshape(refined_array, (n_triangles, 3, 3))
     return refined_array
 
-def adaptive_refinement_triangulation(triangle_array, cone_type, cone_angle_deg,
-                                      max_z_delta=0.10, max_edge_length=1.5,
-                                      max_iterations=3):
-    """
-    Adaptively refine only triangles that are likely to cause visible artifacts
-    after conical transformation.
-
-    max_z_delta:
-        Maximum allowed conical Z offset variation across one triangle.
-
-    max_edge_length:
-        Maximum allowed triangle edge length.
-
-    max_iterations:
-        Safety cap to prevent runaway file size.
-    """
-    cone_angle_rad = np.radians(cone_angle_deg)
-    tan_a = np.tan(cone_angle_rad)
-
-    if cone_type == 'outward':
-        c = 1
-    elif cone_type == 'inward':
-        c = -1
-    else:
-        raise ValueError(f"{cone_type} is not an admissible type")
-
-    refined = triangle_array
-
-    for iteration in range(max_iterations):
-        keep = []
-        split = []
-
-        for tri in refined:
-            xy = tri[:, :2]
-            r = np.sqrt(xy[:, 0]**2 + xy[:, 1]**2)
-            cone_z_offset = c * tan_a * r
-
-            z_delta = np.max(cone_z_offset) - np.min(cone_z_offset)
-
-            e01 = np.linalg.norm(tri[1] - tri[0])
-            e12 = np.linalg.norm(tri[2] - tri[1])
-            e20 = np.linalg.norm(tri[0] - tri[2])
-            max_edge = max(e01, e12, e20)
-
-            if z_delta > max_z_delta or max_edge > max_edge_length:
-                split.append(tri)
-            else:
-                keep.append(tri)
-
-        print(
-            f"Adaptive refinement pass {iteration + 1}: "
-            f"keeping {len(keep)}, splitting {len(split)}"
-        )
-
-        if not split:
-            break
-
-        split_refined = np.array(list(map(refinement_one_triangle, split)))
-        split_refined = np.reshape(split_refined, (-1, 3, 3))
-
-        if keep:
-            refined = np.concatenate([np.array(keep), split_refined], axis=0)
-        else:
-            refined = split_refined
-
-    return refined
-
 
 def transformation_cone(points, cone_type, cone_angle_deg):
     """
@@ -169,20 +102,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     start = time.time()
     my_mesh = mesh.Mesh.from_file(path)
     vectors = my_mesh.vectors
-    #vectors_refined = refinement_triangulation(vectors, nb_iterations)
-
-    if nb_iterations == 0:
-        vectors_refined = vectors
-    else:
-        vectors_refined = adaptive_refinement_triangulation(
-            vectors,
-            cone_type=cone_type,
-            cone_angle_deg=cone_angle_deg,
-            max_z_delta=0.10,
-            max_edge_length=1.5,
-            max_iterations=nb_iterations
-        )
-
+    vectors_refined = refinement_triangulation(vectors, nb_iterations)
     vectors_refined = np.reshape(vectors_refined, (-1, 3))
 
     vectors_refined = center_model(vectors_refined)
@@ -216,8 +136,8 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\benchy_tri_supports.stl"
 dir_transformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
-number_iterations = 0                # mesh refinement iterations
-cone_angle_degrees = 30            # recommended: 5-20 deg for cartesian printers
+number_iterations = 1                # mesh refinement iterations
+cone_angle_degrees = 45            # recommended: 5-20 deg for cartesian printers
 
 transformation_STL_file(
     path=file_path,
