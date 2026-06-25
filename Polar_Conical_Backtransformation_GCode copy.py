@@ -284,22 +284,24 @@ def make_safety_limits():
     }
 
 
-def check_axis_limit(axis_name, value, min_value, max_value):
+def check_axis_limit(axis_name, value, min_value, max_value, tolerance=0.0, line_context=""):
     """
     Check one machine axis.
 
     If min_value or max_value is None, that side is treated as unlimited.
     """
-    if min_value is not None and value < min_value:
+    if min_value is not None and value < min_value - tolerance:
         raise ValueError(
             f"Safety limit error: {axis_name} below minimum. "
-            f"{axis_name}={value:.3f}, min={min_value:.3f}"
+            f"{axis_name}={value:.3f}, min={min_value:.3f}, tolerance={tolerance:.3f}. "
+            f"{line_context}"
         )
 
-    if max_value is not None and value > max_value:
+    if max_value is not None and value > max_value + tolerance:
         raise ValueError(
             f"Safety limit error: {axis_name} above maximum. "
-            f"{axis_name}={value:.3f}, max={max_value:.3f}"
+            f"{axis_name}={value:.3f}, max={max_value:.3f}, tolerance={tolerance:.3f}. "
+            f"{line_context}"
         )
 
 
@@ -310,6 +312,7 @@ def check_safety_limits(
     b_axis,
     safety_limits,
     line_context="",
+    check_min_z=True,
 ):
     """
     Check generated 4-axis machine coordinates against safety limits.
@@ -327,10 +330,38 @@ def check_safety_limits(
     min_z = safety_limits["min_z"] + margin
     max_z = safety_limits["max_z"] - margin
 
-    check_axis_limit("X", x_axis, min_x, max_x)
-    check_axis_limit("Z", z_axis, min_z, max_z)
-    check_axis_limit("B", b_axis, safety_limits["min_b"], safety_limits["max_b"])
-    check_axis_limit("C", c_axis, safety_limits["min_c"], safety_limits["max_c"])
+    tolerance_mm = safety_limits.get("limit_tolerance_mm", 0.0)
+    tolerance_deg = safety_limits.get("limit_tolerance_deg", 0.0)
+
+    # check_axis_limit("X", x_axis, min_x, max_x)
+    # check_axis_limit("Z", z_axis, min_z, max_z)
+    # check_axis_limit("B", b_axis, safety_limits["min_b"], safety_limits["max_b"])
+    # check_axis_limit("C", c_axis, safety_limits["min_c"], safety_limits["max_c"])
+
+    check_axis_limit("X", x_axis, min_x, max_x, tolerance=tolerance_mm, line_context=line_context)
+
+    if check_min_z:
+        check_axis_limit("Z", z_axis, min_z, max_z, tolerance=tolerance_mm, line_context=line_context)
+    else:
+        check_axis_limit("Z", z_axis, None, max_z, tolerance=tolerance_mm, line_context=line_context)
+
+    check_axis_limit(
+        "B",
+        b_axis,
+        safety_limits["min_b"],
+        safety_limits["max_b"],
+        tolerance=tolerance_deg,
+        line_context=line_context,
+    )
+
+    check_axis_limit(
+        "C",
+        c_axis,
+        safety_limits["min_c"],
+        safety_limits["max_c"],
+        tolerance=tolerance_deg,
+        line_context=line_context,
+    )
 
     # Optional rough shadow-box check.
     # This is a placeholder collision envelope, not a full CAD collision model.
@@ -403,6 +434,53 @@ def print_safety_limits_summary(safety_limits):
     else:
         print("    Shadow box: DISABLED")
 
+def validate_final_cxzb_gcode(data_bt_string, safety_limits):
+    """
+    Validate the final generated C/X/Z/B G-code AFTER auto Z shifting.
+
+    This is where we should enforce the true Z minimum, because before
+    auto_shift_cxzb_z(...), temporary negative Z values may exist.
+    """
+    if safety_limits is None:
+        return
+
+    pattern_C = rf'C{NUM}'
+    pattern_X = rf'X{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_B = rf'B{NUM}'
+
+    checked_moves = 0
+
+    for line_number, row in enumerate(data_bt_string.splitlines(), start=1):
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        c_match = re.search(pattern_C, row)
+        x_match = re.search(pattern_X, row)
+        z_match = re.search(pattern_Z, row)
+        b_match = re.search(pattern_B, row)
+
+        if x_match is None or z_match is None or b_match is None:
+            continue
+
+        c_axis = float(c_match.group(0).replace("C", "")) if c_match is not None else 0.0
+        x_axis = float(x_match.group(0).replace("X", ""))
+        z_axis = float(z_match.group(0).replace("Z", ""))
+        b_axis = float(b_match.group(0).replace("B", ""))
+
+        check_safety_limits(
+            c_axis=c_axis,
+            x_axis=x_axis,
+            z_axis=z_axis,
+            b_axis=b_axis,
+            safety_limits=safety_limits,
+            check_min_z=True,
+            line_context=f"Final G-code line {line_number}: {row}",
+        )
+
+        checked_moves += 1
+
+    print(f"  Final safety validation passed on {checked_moves} G0/G1 move(s).")
 
 def backtransform_data(
     data,
@@ -557,9 +635,11 @@ def backtransform_data(
                 z_axis=z_axis,
                 b_axis=b_axis,
                 safety_limits=safety_limits,
+                check_min_z=False,
                 line_context=(
-                    f"Generated move: "
-                    f"C{c_axis:.3f} X{x_axis:.3f} Z{z_axis:.3f} B{b_axis:.3f}"
+                    f"Pre-shift generated move: "
+                    f"C{c_axis:.3f} X{x_axis:.3f} Z{z_axis:.3f} B{b_axis:.3f} | "
+                    f"Original row: {row.strip()}"
                 ),
             )
 
@@ -720,6 +800,148 @@ def remove_unwanted_blocks(data):
     print(f"  Removed {removed_blocks} skippable block(s), {removed_lines} total line(s).")
     return cleaned
 
+def remove_preprint_motion_moves(data):
+    """
+    Remove G0/G1 motion moves before the actual model print starts.
+
+    Why:
+        The fixed header should handle startup/homing/purge behavior.
+        The slicer body can still contain pre-print travel/purge moves like:
+            G1 X-28.5 F18000
+
+        Those are not model geometry and should not be converted into C/X/Z/B.
+
+    Start of real print is detected using common slicer layer markers:
+        ; CHANGE_LAYER
+        ; Z_HEIGHT:
+        ;LAYER_CHANGE
+        ; layer num/
+    """
+    cleaned = []
+    in_print = False
+    removed_motion_lines = 0
+
+    pattern_G = r'\AG[01] '
+
+    for row in data:
+        stripped = row.strip()
+
+        if (
+            '; CHANGE_LAYER' in row
+            or '; Z_HEIGHT:' in row
+            or ';LAYER_CHANGE' in row
+            or '; layer num/' in row
+        ):
+            in_print = True
+            cleaned.append(row)
+            continue
+
+        g_match = re.search(pattern_G, row)
+
+        # Before the model starts, remove only motion lines.
+        # Keep comments, temperature commands, fan commands, etc.
+        if not in_print and g_match is not None:
+            removed_motion_lines += 1
+            continue
+
+        cleaned.append(row)
+
+    print(f"  Removed {removed_motion_lines} pre-print G0/G1 motion line(s).")
+    return cleaned
+
+def remove_out_of_bounds_nonprint_moves(
+    data,
+    cartesian_min_x=0.0,
+    cartesian_max_x=256.0,
+    cartesian_min_y=0.0,
+    cartesian_max_y=256.0,
+):
+    """
+    Remove non-extrusion travel/utility G0/G1 moves that go outside
+    the normal Cartesian slicer bed area.
+
+    Why:
+        Some slicers include machine utility moves in the body, for example:
+            G1 X-28.5 F18000
+
+        That is not model geometry. If we backtransform it, it can create
+        invalid 4-axis X/C/Z/B moves.
+
+    This only removes moves with no positive extrusion.
+    Real print moves with E > 0 are kept.
+    """
+    cleaned = []
+    removed_lines = 0
+
+    pattern_G = r'\AG[01] '
+    pattern_X = rf'X{NUM}'
+    pattern_Y = rf'Y{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    current_x = None
+    current_y = None
+
+    for row in data:
+        g_match = re.search(pattern_G, row)
+
+        if g_match is None:
+            cleaned.append(row)
+            continue
+
+        x_match = re.search(pattern_X, row)
+        y_match = re.search(pattern_Y, row)
+        e_match = re.search(pattern_E, row)
+
+        # Determine whether this is a positive-extrusion print move.
+        is_positive_extrusion = False
+        if e_match is not None:
+            e_val = float(e_match.group(0).replace("E", ""))
+            is_positive_extrusion = e_val > 0
+
+        # Candidate modal position after this row.
+        candidate_x = current_x
+        candidate_y = current_y
+
+        if x_match is not None:
+            candidate_x = float(x_match.group(0).replace("X", ""))
+
+        if y_match is not None:
+            candidate_y = float(y_match.group(0).replace("Y", ""))
+
+        # Only remove non-print moves.
+        if not is_positive_extrusion:
+            out_of_bounds = False
+
+            if candidate_x is not None:
+                if candidate_x < cartesian_min_x or candidate_x > cartesian_max_x:
+                    out_of_bounds = True
+
+            if candidate_y is not None:
+                if candidate_y < cartesian_min_y or candidate_y > cartesian_max_y:
+                    out_of_bounds = True
+
+            # should just remove machine/slicer utility moves - not benchy geometry :3
+            if out_of_bounds:
+                removed_lines += 1
+                print(f"  Commented out out-of-bounds non-print move: {row.strip()}")
+
+                cleaned.append(
+                    f"; REMOVED_OUT_OF_BOUNDS_NONPRINT_MOVE: {row.strip()}\n"
+                )
+                continue
+
+        # Keep row and update modal XY state.
+        if x_match is not None:
+            current_x = candidate_x
+
+        if y_match is not None:
+            current_y = candidate_y
+
+        cleaned.append(row)
+
+    print(f"  Commented out {removed_lines} out-of-bounds non-print move(s).")
+    return cleaned
+
 def backtransform_file(
     path,
     output_dir,
@@ -755,6 +977,18 @@ def backtransform_file(
 
     print("Removing timelapse/skippable utility blocks...")
     body = remove_unwanted_blocks(body)
+
+    print("Removing pre-print motion moves...")
+    body = remove_preprint_motion_moves(body)
+
+    print("Removing out-of-bounds non-print moves...")
+    body = remove_out_of_bounds_nonprint_moves(
+        body,
+        cartesian_min_x=0.0,
+        cartesian_max_x=256.0,
+        cartesian_min_y=0.0,
+        cartesian_max_y=256.0,
+    )
 
     fixed_header = read_fixed_header(fixed_header_path)
 
@@ -797,6 +1031,8 @@ def backtransform_file(
     # This replaces guessing machine_z_lift by hand.
     data_bt_string = auto_shift_cxzb_z(data_bt_string, z_desired)
 
+    validate_final_cxzb_gcode(data_bt_string, safety_limits)
+
     #data_bt = [row + ' \n' for row in data_bt_string.split('\n')]
 
     #print("Applying Z/XY translation...")
@@ -825,7 +1061,7 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Polar_ISO Cube_30deg_transformed_PLA_28m28s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safety_Test_Polar_ISO 2.5 Benchy_30deg_transformed_PLA_1h4m.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
@@ -880,6 +1116,9 @@ safety_limits["max_c"] = None
 # Optional extra safety margin.
 # Keep 0.0 while debugging. Later, use something like 1.0 or 2.0 mm.
 safety_limits["safety_margin_mm"] = 0.0
+
+safety_limits["limit_tolerance_mm"] = 0.25
+safety_limits["limit_tolerance_deg"] = 0.001
 
 # Shadow box is OFF until you measure the head/nozzle assembly.
 safety_limits["enable_shadow_box_check"] = False
