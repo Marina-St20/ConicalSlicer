@@ -1614,11 +1614,14 @@ def backtransform_file(
 
         nozzle_z_comp_offset = (np.cos(head_tilt_rad) - 1.0) * nozzle_offset
 
-        compensated_first_layer_machine_z = z_desired + nozzle_z_comp_offset
+        extra_z_offset = 0.2
+
+        compensated_first_layer_machine_z = z_desired + nozzle_z_comp_offset + extra_z_offset
 
         print("Conical Z mode: shifting so lowest FIRST-LAYER EXTRUSION equals compensated machine Z...")
         print(f"  Desired nozzle-tip first-layer height: {z_desired:.5f} mm")
         print(f"  Nozzle Z compensation offset: {nozzle_z_comp_offset:.5f} mm")
+        print(f"  Extra Z offset: {extra_z_offset:.5f} mm")
         print(f"  Target compensated machine Z: {compensated_first_layer_machine_z:.5f} mm")
 
         data_bt_string = auto_shift_first_layer_extrusion_min_z(
