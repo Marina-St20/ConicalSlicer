@@ -33,11 +33,13 @@ def show_regions(mesh, face_indices=None, color=[1, 0, 0, 1], colors=None):
     _mesh.visual.face_colors = face_colors
     _mesh.show()
 
-def build_map(mesh, origin_face=0):
+def build_map(mesh, origins=[0]):
     distances = np.full(len(mesh.faces), np.inf, dtype=float)
+    angle_threshold = 0
+    norms = mesh.face_normals.copy()
 
     if len(mesh.face_adjacency) == 0:
-        return np.array([origin_face], dtype=int), distances
+        return np.array([origins], dtype=int), distances
 
     adjacency = [[] for _ in range(len(mesh.faces))]
     centroids = mesh.triangles_center
@@ -47,8 +49,11 @@ def build_map(mesh, origin_face=0):
 
         face_a = centroids[a]
         face_b = centroids[b]
+        norm_a = norms[a]
+        norm_b = norms[b]
 
         dist = abs(np.linalg.norm(face_a-face_b))
+        weight = np.linalg.norm(norm_a - norm_b)
 
         adjacency[a].append([b, dist])
         adjacency[b].append([a, dist])
@@ -62,8 +67,10 @@ def build_map(mesh, origin_face=0):
 
 
     visited = np.zeros(len(mesh.faces), dtype=bool)
-    distances[origin_face] = 0.0
-    queue = [(0.0, int(origin_face))]
+    queue = []
+    for i in origins:
+        distances[i] = 0.0
+        heapq.heappush(queue, (0.0, int(i)))
 
     while queue:
         face = heapq.heappop(queue)
@@ -86,7 +93,7 @@ def build_map(mesh, origin_face=0):
 
     return distances
 
-def loop(queue, adjacency, ordered_faces, distances, visited, start):
+def loop(queue, adjacency, distances, visited, start):
      print(f"Loop")
      queue = [(0.0, int(start))]
      while queue:
@@ -96,7 +103,6 @@ def loop(queue, adjacency, ordered_faces, distances, visited, start):
         if visited[face_idx]:
             continue
         visited[face_idx] = True
-        ordered_faces.append(face_idx)
 
         for neighbour_idx, distance in adjacency[face_idx]:
             new_distance = current_distance + distance
@@ -121,7 +127,10 @@ def main():
         center[2] = 0
 
     start = time.perf_counter()
-    distances = build_map(mesh, origin_face=0)
+    _, _, origins = mesh.ray.intersects_location(
+        ray_origins=[[0,0,0]], ray_directions=[[0,0,1]], multiple_hits=True)
+    origins = origins[mesh.face_normals[origins][:,2] < 0]
+    distances = build_map(mesh, origins=origins)
     end = time.perf_counter()
     mod = distances[distances.argmax()]
 
