@@ -841,10 +841,29 @@ def backtransform_data(
         x_new_bt = (x_new - bed_center_x) * np.cos(cone_angle_rad) + bed_center_x
         y_new_bt = (y_new - bed_center_y) * np.cos(cone_angle_rad) + bed_center_y
 
-        # Segment long moves for smooth Z interpolation
+        # Segment long moves for smooth Z interpolation.
+        # positive E print move -> segmented
+        # negative E retract/wipe move -> one move
+        # zero/negative E move -> one move
+        # no-E travel move -> segmented
+        # Positive extrusion gets segmented so curved/conical print paths are smooth.
+        # Retraction / unretraction / wipe moves should NOT be split into many tiny E moves.
         dist_transformed = np.linalg.norm([x_new - x_old, y_new - y_old])
-        #num_segm = max(1, int(dist_transformed // maximal_length + 1)) # old
-        num_segm = max(1, int(np.ceil(dist_transformed / maximal_length)))  # fixed
+        base_num_segm = max(1, int(np.ceil(dist_transformed / maximal_length)))
+
+        e_original = None
+        is_positive_extrusion = False
+        is_retraction_or_prime = False
+
+        if e_match is not None:
+            e_original = float(e_match.group(0).replace('E', ''))
+            is_positive_extrusion = e_original > 0
+            is_retraction_or_prime = e_original <= 0
+
+        if is_retraction_or_prime:
+            num_segm = 1
+        else:
+            num_segm = base_num_segm
 
         x_vals = np.linspace(x_old_bt, x_new_bt, num_segm + 1)
         y_vals = np.linspace(y_old_bt, y_new_bt, num_segm + 1)
@@ -910,12 +929,25 @@ def backtransform_data(
                 f"B{b_axis:.5f}"
             )
 
+            #Don't force fixed positive E onto retractions
             if e_match is not None:
-                if use_fixed_e:
-                    e_out = fixed_e
-                else:
+                if e_original is None:
                     e_original = float(e_match.group(0).replace('E', ''))
-                    e_out = e_original / num_segm
+
+                if use_fixed_e:
+                    if e_original > 0:
+                        e_out = fixed_e
+                    else:
+                        # Preserve retract / unretract / pressure moves.
+                        e_out = e_original
+                else:
+                    if e_original > 0:
+                        # Split only real positive extrusion across generated segments.
+                        e_out = e_original / num_segm
+                    else:
+                        # Do not split retraction/negative E.
+                        e_out = e_original
+
                 new_line += f" E{e_out:.5f}"
 
             if current_feedrate is not None:
@@ -1476,23 +1508,99 @@ def keep_only_simple_4axis_print_gcode(gcode_string, keep_layer_comments=True):
             removed_count += 1
             continue
 
+        #keep e-only retract/prime moves in final cleanup
         has_c = re.search(rf'(^|\s)C{NUM}', row) is not None
         has_x = re.search(rf'(^|\s)X{NUM}', row) is not None
         has_z = re.search(rf'(^|\s)Z{NUM}', row) is not None
         has_b = re.search(rf'(^|\s)B{NUM}', row) is not None
+        has_e = re.search(rf'(^|\s)E{NUM}', row) is not None
 
-        has_machine_motion_axis = has_c or has_x or has_z or has_b
+        has_full_4axis_motion = has_c and has_x and has_z and has_b
+        has_any_machine_axis = has_c or has_x or has_z or has_b
 
-        if has_machine_motion_axis:
+        if has_full_4axis_motion:
             cleaned_lines.append(row)
             continue
 
-        # Remove E-only moves and feedrate-only moves.
+        # Keep E-only retract / prime / pressure moves.
+        if has_e and not has_any_machine_axis:
+            cleaned_lines.append(row)
+            continue
+
+        # Remove partial-axis junk like G1 Z154, G1 F1200, etc.
         removed_count += 1
 
     print(f"  Model-only final cleanup removed {removed_count} line(s).")
 
     return "\n".join(cleaned_lines) + "\n"
+
+def print_e_move_summary(label, data):
+    pattern_G = r'\AG[01] '
+    pattern_X = rf'X{NUM}'
+    pattern_Y = rf'Y{NUM}'
+    pattern_C = rf'C{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_B = rf'B{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    positive_e = 0
+    negative_e = 0
+    zero_e = 0
+    e_only_negative = 0
+    motion_negative = 0
+    positive_e_total = 0.0
+    negative_e_total = 0.0
+
+    for row in data:
+        if isinstance(row, str):
+            lines = row.splitlines()
+        else:
+            lines = [row]
+
+        for line in lines:
+            if re.search(pattern_G, line) is None:
+                continue
+
+            e_match = re.search(pattern_E, line)
+            if e_match is None:
+                continue
+
+            e_val = float(e_match.group(0).replace("E", ""))
+
+            has_cartesian_motion = (
+                re.search(pattern_X, line) is not None
+                or re.search(pattern_Y, line) is not None
+            )
+
+            has_machine_motion = (
+                re.search(pattern_C, line) is not None
+                or re.search(pattern_Z, line) is not None
+                or re.search(pattern_B, line) is not None
+            )
+
+            has_motion = has_cartesian_motion or has_machine_motion
+
+            if e_val > 0:
+                positive_e += 1
+                positive_e_total += e_val
+            elif e_val < 0:
+                negative_e += 1
+                negative_e_total += e_val
+                if has_motion:
+                    motion_negative += 1
+                else:
+                    e_only_negative += 1
+            else:
+                zero_e += 1
+
+    print(f"{label}:")
+    print(f"  positive E total: {positive_e_total:.5f}")
+    print(f"  negative E total: {negative_e_total:.5f}")
+    print(f"  positive E lines: {positive_e}")
+    print(f"  negative E lines: {negative_e}")
+    print(f"    negative E-only lines: {e_only_negative}")
+    print(f"    negative E + motion lines: {motion_negative}")
+    print(f"  zero E lines: {zero_e}")
 
 def backtransform_file(
     path,
@@ -1574,6 +1682,8 @@ def backtransform_file(
 
     print_safety_limits_summary(safety_limits)
 
+    print_e_move_summary("Input body before backtransform", body)
+
     data_bt = backtransform_data(
         body,
         cone_type,
@@ -1590,6 +1700,8 @@ def backtransform_file(
         machine_z_lift=machine_z_lift,
         use_conical_z_backtransform=use_conical_z_backtransform,
     )
+
+    print_e_move_summary("Output after backtransform", data_bt)
 
     data_bt_string = ''.join(data_bt)
 
@@ -1681,7 +1793,7 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_Side Dogbone_30deg_transformed_PLA_49m30s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_d20_medium_30deg_transformed_PLA_3h51m.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
