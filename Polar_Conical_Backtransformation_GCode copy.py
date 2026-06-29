@@ -1602,6 +1602,111 @@ def print_e_move_summary(label, data):
     print(f"    negative E + motion lines: {motion_negative}")
     print(f"  zero E lines: {zero_e}")
 
+def tune_relative_extrusion_values(
+    data_bt_string,
+    retraction_scale=0.50,
+    prime_scale=None,
+    print_extrusion_multiplier=1.00,
+):
+    """
+    Tune relative E values after CXZB conversion.
+
+    Assumes M83 relative extrusion.
+
+    What it does:
+      - Negative E values are retractions/wipe-retractions.
+        These get multiplied by retraction_scale.
+          Example: E-0.80000 with scale 0.50 -> E-0.40000
+
+      - Positive E-only moves are usually unretract/prime moves.
+        These get multiplied by prime_scale.
+        If prime_scale is None, it uses the same value as retraction_scale.
+
+      - Positive E with C/X/Z/B motion is normal printing extrusion.
+        These get multiplied by print_extrusion_multiplier.
+    """
+    if prime_scale is None:
+        prime_scale = retraction_scale
+
+    pattern_E = rf'(^|\s)E{NUM}'
+
+    tuned_lines = []
+
+    negative_count = 0
+    positive_e_only_count = 0
+    positive_print_count = 0
+
+    negative_before = 0.0
+    negative_after = 0.0
+    positive_e_only_before = 0.0
+    positive_e_only_after = 0.0
+    positive_print_before = 0.0
+    positive_print_after = 0.0
+
+    for row in data_bt_string.splitlines():
+        if not row.startswith(("G0", "G1")):
+            tuned_lines.append(row)
+            continue
+
+        e_match = re.search(pattern_E, row)
+
+        if e_match is None:
+            tuned_lines.append(row)
+            continue
+
+        e_word = e_match.group(0).strip()
+        e_val = float(e_word.replace("E", ""))
+
+        has_c = re.search(rf'(^|\s)C{NUM}', row) is not None
+        has_x = re.search(rf'(^|\s)X{NUM}', row) is not None
+        has_z = re.search(rf'(^|\s)Z{NUM}', row) is not None
+        has_b = re.search(rf'(^|\s)B{NUM}', row) is not None
+
+        has_machine_motion = has_c or has_x or has_z or has_b
+
+        if e_val < 0:
+            new_e = e_val * retraction_scale
+            negative_count += 1
+            negative_before += e_val
+            negative_after += new_e
+
+        elif e_val > 0 and not has_machine_motion:
+            new_e = e_val * prime_scale
+            positive_e_only_count += 1
+            positive_e_only_before += e_val
+            positive_e_only_after += new_e
+
+        elif e_val > 0 and has_machine_motion:
+            new_e = e_val * print_extrusion_multiplier
+            positive_print_count += 1
+            positive_print_before += e_val
+            positive_print_after += new_e
+
+        else:
+            new_e = e_val
+
+        row = re.sub(pattern_E, f" E{new_e:.5f}", row, count=1)
+        tuned_lines.append(row)
+
+    print("  Extrusion tuning summary:")
+    print(f"    retraction_scale:            {retraction_scale:.3f}")
+    print(f"    prime_scale:                 {prime_scale:.3f}")
+    print(f"    print_extrusion_multiplier:  {print_extrusion_multiplier:.3f}")
+
+    print(f"    negative E lines tuned:      {negative_count}")
+    print(f"      negative E before:         {negative_before:.5f}")
+    print(f"      negative E after:          {negative_after:.5f}")
+
+    print(f"    positive E-only lines tuned: {positive_e_only_count}")
+    print(f"      positive E-only before:    {positive_e_only_before:.5f}")
+    print(f"      positive E-only after:     {positive_e_only_after:.5f}")
+
+    print(f"    positive print E lines tuned:{positive_print_count}")
+    print(f"      positive print E before:   {positive_print_before:.5f}")
+    print(f"      positive print E after:    {positive_print_after:.5f}")
+
+    return "\n".join(tuned_lines) + "\n"
+
 def backtransform_file(
     path,
     output_dir,
@@ -1717,6 +1822,14 @@ def backtransform_file(
     data_bt_string = keep_only_simple_4axis_print_gcode(
         data_bt_string,
         keep_layer_comments=True,
+    )
+
+    print("Tuning relative extrusion/retraction values...")
+    data_bt_string = tune_relative_extrusion_values(
+        data_bt_string,
+        retraction_scale=0.50, #Retraction cut in half
+        prime_scale=0.50, #Prim cut in half
+        print_extrusion_multiplier=1.00, #Normal print extrusion unchanged
     )
 
     if use_conical_z_backtransform:
