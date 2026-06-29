@@ -48,14 +48,20 @@ def make_simple_start_gcode(
 ; SIMPLE 4-AXIS START G-CODE
 ; ------------------------------------------------------------
 G90 ; absolute positioning for machine axes
-M82 ; absolute extrusion mode
+M83 ; relative extrusion mode
 M140 S{bed_temp} ; start heating bed
 M104 S{nozzle_temp} ; start heating nozzle
 M190 S{bed_temp} ; wait for bed temperature
 M109 S{nozzle_temp} ; wait for nozzle temperature
-G28 ; home all axes
 G90 ; absolute positioning after homing
 M83 ; relative extrusion mode after homing
+G92 E0 ; reset extruder
+
+; --- safe clearance before 4-axis positioning ---
+G1 Z15.000 F2000 ; lift machine Z before rotating/tilting
+G1 B-30.00000 F1000 ; tilt nozzle while safely above bed
+; --- end safe clearance move ---
+
 ; ------------------------------------------------------------
 ; BEGIN GENERATED 4-AXIS TOOLPATH
 ; ------------------------------------------------------------
