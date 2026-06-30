@@ -30,7 +30,7 @@ def read_fixed_header(path):
         return f.read()
 
 def make_simple_start_gcode(
-    nozzle_temp=240,
+    nozzle_temp=210,
     bed_temp=60,
 ):
     """
@@ -81,7 +81,7 @@ def make_simple_end_gcode(
 ; SIMPLE 4-AXIS END G-CODE
 ; ------------------------------------------------------------
 G91 ; relative positioning for lift
-G1 Z{end_z_lift:.3f} F2000 ; lift Z out of the way
+G1 Z{end_z_lift:.3f} F1000 ; lift Z out of the way
 G90 ; back to absolute positioning
 M104 S0 ; turn off nozzle heater
 M140 S0 ; turn off bed heater
@@ -1769,7 +1769,7 @@ def backtransform_file(
     # fixed_header = read_fixed_header(fixed_header_path)
 
     fixed_header = make_simple_start_gcode(
-        nozzle_temp=240,
+        nozzle_temp=210,
         bed_temp=60,
     )
 
@@ -1913,12 +1913,12 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_block U_30deg_transformed_PLA_29m23s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_d20_medium_0deg_transformed_PLA_26m23s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  30         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  0         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
