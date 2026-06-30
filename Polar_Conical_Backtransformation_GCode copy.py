@@ -53,12 +53,13 @@ M140 S{bed_temp} ; start heating bed
 M104 S{nozzle_temp} ; start heating nozzle
 M190 S{bed_temp} ; wait for bed temperature
 M109 S{nozzle_temp} ; wait for nozzle temperature
+G28 ; home all axes
 G90 ; absolute positioning after homing
 M83 ; relative extrusion mode after homing
 G92 E0 ; reset extruder
 
 ; --- safe clearance before 4-axis positioning ---
-G1 Z15.000 F2000 ; lift machine Z before rotating/tilting
+G1 Z15.000 F1000 ; lift machine Z before rotating/tilting
 G1 B-30.00000 F1000 ; tilt nozzle while safely above bed
 ; --- end safe clearance move ---
 
@@ -1833,8 +1834,8 @@ def backtransform_file(
     print("Tuning relative extrusion/retraction values...")
     data_bt_string = tune_relative_extrusion_values(
         data_bt_string,
-        retraction_scale=0.50, #Retraction cut in half
-        prime_scale=0.50, #Prim cut in half
+        retraction_scale=1.00, #Retraction cut in half
+        prime_scale=1.00, #Prime cut in half
         print_extrusion_multiplier=1.00, #Normal print extrusion unchanged
     )
 
@@ -1912,7 +1913,7 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_d20_medium_30deg_transformed_PLA_3h51m.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_block U_30deg_transformed_PLA_29m23s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
