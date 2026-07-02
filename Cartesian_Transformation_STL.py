@@ -3,6 +3,18 @@ from stl import mesh
 import time
 import os
 
+def print_xy_size_check(label, points):
+    min_xyz = np.min(points, axis=0)
+    max_xyz = np.max(points, axis=0)
+
+    x_size = max_xyz[0] - min_xyz[0]
+    y_size = max_xyz[1] - min_xyz[1]
+    z_size = max_xyz[2] - min_xyz[2]
+
+    print(f"{label}:")
+    print(f"  X size: {x_size:.5f} mm")
+    print(f"  Y size: {y_size:.5f} mm")
+    print(f"  Z size: {z_size:.5f} mm")
 
 def refinement_one_triangle(triangle):
     point1 = triangle[0]
@@ -187,7 +199,18 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 
     vectors_refined = center_model(vectors_refined)
 
+    print_xy_size_check("Centered original STL before cone transform", vectors_refined)
+
+    cone_angle_rad = np.radians(cone_angle_deg)
+    expected_xy_scale = 1.0 / np.cos(cone_angle_rad)
+
+    print(f"Expected STL XY expansion for {cone_angle_deg} deg:")
+    print(f"  scale = 1/cos(angle) = {expected_xy_scale:.6f}")
+    print(f"  percent = {expected_xy_scale * 100.0:.3f}%")
+
     vectors_transformed = transformation_cone(vectors_refined, cone_type, cone_angle_deg)
+
+    print_xy_size_check("Transformed STL after cone transform", vectors_transformed)
 
     vectors_transformed = sit_model_on_build_plate(vectors_transformed)
 
@@ -213,7 +236,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # ---------------------------------------------------------------
 
 #file_path = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\ASTM_Dogbone.stl"
-file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\aussie_based.stl"
+file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\d20_medium.stl"
 dir_transformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
 number_iterations = 0                # mesh refinement iterations

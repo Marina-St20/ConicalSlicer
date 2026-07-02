@@ -1714,6 +1714,95 @@ def tune_relative_extrusion_values(
 
     return "\n".join(tuned_lines) + "\n"
 
+def print_gcode_xy_scaling_check(
+    data,
+    cone_angle_deg,
+    bed_center_x,
+    bed_center_y,
+):
+    """
+    Print whether the current G-code backtransform will shrink XY.
+
+    This checks positive-extrusion XY moves from the slicer body.
+    It compares:
+      - input slicer XY size
+      - XY size after the current cos(angle) backtransform
+    """
+    pattern_G = r'\AG[01] '
+    pattern_X = rf'X{NUM}'
+    pattern_Y = rf'Y{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    cone_angle_rad = np.radians(cone_angle_deg)
+    xy_scale = np.cos(cone_angle_rad)
+
+    input_xs = []
+    input_ys = []
+    output_xs = []
+    output_ys = []
+
+    current_x = None
+    current_y = None
+
+    for row in data:
+        if re.search(pattern_G, row) is None:
+            continue
+
+        x_match = re.search(pattern_X, row)
+        y_match = re.search(pattern_Y, row)
+        e_match = re.search(pattern_E, row)
+
+        if x_match is not None:
+            current_x = float(x_match.group(0).replace("X", ""))
+
+        if y_match is not None:
+            current_y = float(y_match.group(0).replace("Y", ""))
+
+        if e_match is None:
+            continue
+
+        e_val = float(e_match.group(0).replace("E", ""))
+
+        if e_val <= 0:
+            continue
+
+        if current_x is None or current_y is None:
+            continue
+
+        x_in = current_x
+        y_in = current_y
+
+        x_out = (x_in - bed_center_x) * xy_scale + bed_center_x
+        y_out = (y_in - bed_center_y) * xy_scale + bed_center_y
+
+        input_xs.append(x_in)
+        input_ys.append(y_in)
+        output_xs.append(x_out)
+        output_ys.append(y_out)
+
+    if not input_xs:
+        print("G-code XY scaling check: no positive-extrusion XY moves found.")
+        return
+
+    input_x_size = max(input_xs) - min(input_xs)
+    input_y_size = max(input_ys) - min(input_ys)
+
+    output_x_size = max(output_xs) - min(output_xs)
+    output_y_size = max(output_ys) - min(output_ys)
+
+    print("G-code XY scaling check:")
+    print(f"  cone angle: {cone_angle_deg:.3f} deg")
+    print(f"  current backtransform XY scale: cos(angle) = {xy_scale:.6f}")
+    print("  Input slicer G-code size:")
+    print(f"    X size: {input_x_size:.5f} mm")
+    print(f"    Y size: {input_y_size:.5f} mm")
+    print("  Output after current XY backtransform:")
+    print(f"    X size: {output_x_size:.5f} mm")
+    print(f"    Y size: {output_y_size:.5f} mm")
+    print("  Output/input ratio:")
+    print(f"    X ratio: {output_x_size / input_x_size:.6f}")
+    print(f"    Y ratio: {output_y_size / input_y_size:.6f}")
+
 def backtransform_file(
     path,
     output_dir,
@@ -1782,6 +1871,13 @@ def backtransform_file(
         bed_center_x, bed_center_y = detect_bed_center(body)
     else:
         print(f"Using manually specified bed center: ({bed_center_x}, {bed_center_y})")
+
+    print_gcode_xy_scaling_check(
+        body,
+        cone_angle_deg=cone_angle_deg,
+        bed_center_x=bed_center_x,
+        bed_center_y=bed_center_y,
+    )
 
     #print(f"Backtransforming with cone_type='{cone_type}', angle={cone_angle_deg}deg, fixed E={fixed_e}...")
     #data_bt = backtransform_data(body, cone_type, cone_angle_deg, maximal_length,
@@ -1913,7 +2009,7 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_aussie_based_30deg_transformed_PLA_33m36s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_d20_medium_30deg_transformed_PLA_32m30s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
