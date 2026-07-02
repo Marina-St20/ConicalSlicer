@@ -1803,6 +1803,68 @@ def print_gcode_xy_scaling_check(
     print(f"    X ratio: {output_x_size / input_x_size:.6f}")
     print(f"    Y ratio: {output_y_size / input_y_size:.6f}")
 
+def print_final_layer_footprint_summary(data_bt_string, max_layers=20):
+    pattern_X = rf'X{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    current_layer = -1
+    layer_stats = {}
+
+    for row in data_bt_string.splitlines():
+        stripped = row.strip()
+
+        if stripped.startswith("; CHANGE_LAYER"):
+            current_layer += 1
+            continue
+
+        if current_layer < 0:
+            continue
+
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        x_match = re.search(pattern_X, row)
+        z_match = re.search(pattern_Z, row)
+        e_match = re.search(pattern_E, row)
+
+        if x_match is None or z_match is None or e_match is None:
+            continue
+
+        e_val = float(e_match.group(0).replace("E", ""))
+
+        if e_val <= 0:
+            continue
+
+        x_val = float(x_match.group(0).replace("X", ""))
+        z_val = float(z_match.group(0).replace("Z", ""))
+
+        if current_layer not in layer_stats:
+            layer_stats[current_layer] = {
+                "x_vals": [],
+                "z_vals": [],
+                "e_total": 0.0,
+                "count": 0,
+            }
+
+        layer_stats[current_layer]["x_vals"].append(x_val)
+        layer_stats[current_layer]["z_vals"].append(z_val)
+        layer_stats[current_layer]["e_total"] += e_val
+        layer_stats[current_layer]["count"] += 1
+
+    print("Final CXZB layer footprint summary:")
+    for layer in sorted(layer_stats.keys())[:max_layers]:
+        s = layer_stats[layer]
+        xs = s["x_vals"]
+        zs = s["z_vals"]
+
+        print(
+            f"  layer {layer:03d}: "
+            f"X min={min(xs):.5f}, X max={max(xs):.5f}, X range={max(xs)-min(xs):.5f}, "
+            f"Z min={min(zs):.5f}, Z max={max(zs):.5f}, Z range={max(zs)-min(zs):.5f}, "
+            f"E+={s['e_total']:.5f}, moves={s['count']}"
+        )
+
 def backtransform_file(
     path,
     output_dir,
@@ -1956,6 +2018,8 @@ def backtransform_file(
             data_bt_string,
             desired_first_layer_z=compensated_first_layer_machine_z,
         )
+
+        print_final_layer_footprint_summary(data_bt_string, max_layers=30)
     else:
         print("Flat test mode: shifting so first moving extrusion starts at desired first-layer height...")
         data_bt_string = auto_shift_cxzb_z_to_first_moving_extrusion(
