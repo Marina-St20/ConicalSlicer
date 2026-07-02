@@ -1804,12 +1804,19 @@ def print_gcode_xy_scaling_check(
     print(f"    X ratio: {output_x_size / input_x_size:.6f}")
     print(f"    Y ratio: {output_y_size / input_y_size:.6f}")
 
-def print_final_layer_footprint_summary(data_bt_string, max_layers=20):
+def print_final_layer_footprint_summary_by_z(
+    data_bt_string,
+    z_min_filter=None,
+    z_max_filter=None,
+):
     pattern_X = rf'X{NUM}'
     pattern_Z = rf'Z{NUM}'
     pattern_E = rf'E{NUM}'
+    pattern_C = rf'C{NUM}'
+    pattern_B = rf'B{NUM}'
 
     current_layer = -1
+    current_z_height = None
     layer_stats = {}
 
     for row in data_bt_string.splitlines():
@@ -1819,8 +1826,21 @@ def print_final_layer_footprint_summary(data_bt_string, max_layers=20):
             current_layer += 1
             continue
 
+        if stripped.startswith("; Z_HEIGHT:"):
+            try:
+                current_z_height = float(stripped.split(":")[1].strip())
+            except Exception:
+                current_z_height = None
+            continue
+
         if current_layer < 0:
             continue
+
+        if current_z_height is not None:
+            if z_min_filter is not None and current_z_height < z_min_filter:
+                continue
+            if z_max_filter is not None and current_z_height > z_max_filter:
+                continue
 
         if not row.startswith(("G0", "G1")):
             continue
@@ -1828,8 +1848,10 @@ def print_final_layer_footprint_summary(data_bt_string, max_layers=20):
         x_match = re.search(pattern_X, row)
         z_match = re.search(pattern_Z, row)
         e_match = re.search(pattern_E, row)
+        c_match = re.search(pattern_C, row)
+        b_match = re.search(pattern_B, row)
 
-        if x_match is None or z_match is None or e_match is None:
+        if e_match is None:
             continue
 
         e_val = float(e_match.group(0).replace("E", ""))
@@ -1837,32 +1859,166 @@ def print_final_layer_footprint_summary(data_bt_string, max_layers=20):
         if e_val <= 0:
             continue
 
-        x_val = float(x_match.group(0).replace("X", ""))
-        z_val = float(z_match.group(0).replace("Z", ""))
-
         if current_layer not in layer_stats:
             layer_stats[current_layer] = {
+                "z_height": current_z_height,
                 "x_vals": [],
                 "z_vals": [],
+                "c_vals": [],
+                "b_vals": [],
                 "e_total": 0.0,
                 "count": 0,
             }
 
-        layer_stats[current_layer]["x_vals"].append(x_val)
-        layer_stats[current_layer]["z_vals"].append(z_val)
-        layer_stats[current_layer]["e_total"] += e_val
-        layer_stats[current_layer]["count"] += 1
+        s = layer_stats[current_layer]
 
-    print("Final CXZB layer footprint summary:")
-    for layer in sorted(layer_stats.keys())[:max_layers]:
+        if x_match is not None:
+            s["x_vals"].append(float(x_match.group(0).replace("X", "")))
+        if z_match is not None:
+            s["z_vals"].append(float(z_match.group(0).replace("Z", "")))
+        if c_match is not None:
+            s["c_vals"].append(float(c_match.group(0).replace("C", "")))
+        if b_match is not None:
+            s["b_vals"].append(float(b_match.group(0).replace("B", "")))
+
+        s["e_total"] += e_val
+        s["count"] += 1
+
+    print("Final CXZB layer footprint summary by slicer Z_HEIGHT:")
+
+    if not layer_stats:
+        print("  No positive-extrusion layers found in requested Z range.")
+        return
+
+    for layer in sorted(layer_stats.keys()):
         s = layer_stats[layer]
-        xs = s["x_vals"]
-        zs = s["z_vals"]
+
+        def range_text(vals):
+            if not vals:
+                return "none"
+            return f"{min(vals):.5f} to {max(vals):.5f} range={max(vals)-min(vals):.5f}"
 
         print(
-            f"  layer {layer:03d}: "
-            f"X min={min(xs):.5f}, X max={max(xs):.5f}, X range={max(xs)-min(xs):.5f}, "
-            f"Z min={min(zs):.5f}, Z max={max(zs):.5f}, Z range={max(zs)-min(zs):.5f}, "
+            f"  layer {layer:04d}, Z_HEIGHT={s['z_height']}: "
+            f"X {range_text(s['x_vals'])}, "
+            f"machine Z {range_text(s['z_vals'])}, "
+            f"C {range_text(s['c_vals'])}, "
+            f"B {range_text(s['b_vals'])}, "
+            f"E+={s['e_total']:.5f}, moves={s['count']}"
+        )
+
+def print_reconstructed_tip_footprint_by_z(
+    data_bt_string,
+    nozzle_offset,
+    z_min_filter=None,
+    z_max_filter=None,
+):
+    pattern_C = rf'C{NUM}'
+    pattern_X = rf'X{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_B = rf'B{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    current_layer = -1
+    current_z_height = None
+    layer_stats = {}
+
+    for row in data_bt_string.splitlines():
+        stripped = row.strip()
+
+        if stripped.startswith("; CHANGE_LAYER"):
+            current_layer += 1
+            continue
+
+        if stripped.startswith("; Z_HEIGHT:"):
+            try:
+                current_z_height = float(stripped.split(":")[1].strip())
+            except Exception:
+                current_z_height = None
+            continue
+
+        if current_layer < 0:
+            continue
+
+        if current_z_height is not None:
+            if z_min_filter is not None and current_z_height < z_min_filter:
+                continue
+            if z_max_filter is not None and current_z_height > z_max_filter:
+                continue
+
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        c_match = re.search(pattern_C, row)
+        x_match = re.search(pattern_X, row)
+        z_match = re.search(pattern_Z, row)
+        b_match = re.search(pattern_B, row)
+        e_match = re.search(pattern_E, row)
+
+        if c_match is None or x_match is None or z_match is None or b_match is None or e_match is None:
+            continue
+
+        e_val = float(e_match.group(0).replace("E", ""))
+
+        if e_val <= 0:
+            continue
+
+        c_axis = float(c_match.group(0).replace("C", ""))
+        x_axis = float(x_match.group(0).replace("X", ""))
+        z_axis = float(z_match.group(0).replace("Z", ""))
+        b_axis = float(b_match.group(0).replace("B", ""))
+
+        # Reconstruct nozzle-tip/model position from machine CXZB.
+        # This matches the current generator/visualizer convention.
+        head_tilt_rad = np.deg2rad(-b_axis)
+
+        r_tip = x_axis - np.sin(head_tilt_rad) * nozzle_offset
+        z_tip = z_axis - (np.cos(head_tilt_rad) - 1.0) * nozzle_offset
+
+        c_rad = np.deg2rad(c_axis)
+
+        x_tip = r_tip * np.cos(c_rad)
+        y_tip = r_tip * np.sin(c_rad)
+
+        if current_layer not in layer_stats:
+            layer_stats[current_layer] = {
+                "z_height": current_z_height,
+                "x_tip_vals": [],
+                "y_tip_vals": [],
+                "r_tip_vals": [],
+                "z_tip_vals": [],
+                "e_total": 0.0,
+                "count": 0,
+            }
+
+        s = layer_stats[current_layer]
+        s["x_tip_vals"].append(x_tip)
+        s["y_tip_vals"].append(y_tip)
+        s["r_tip_vals"].append(r_tip)
+        s["z_tip_vals"].append(z_tip)
+        s["e_total"] += e_val
+        s["count"] += 1
+
+    print("Reconstructed nozzle-tip footprint summary by slicer Z_HEIGHT:")
+
+    if not layer_stats:
+        print("  No positive-extrusion layers found in requested Z range.")
+        return
+
+    for layer in sorted(layer_stats.keys()):
+        s = layer_stats[layer]
+
+        def range_text(vals):
+            if not vals:
+                return "none"
+            return f"{min(vals):.5f} to {max(vals):.5f} range={max(vals)-min(vals):.5f}"
+
+        print(
+            f"  layer {layer:04d}, Z_HEIGHT={s['z_height']}: "
+            f"tip X {range_text(s['x_tip_vals'])}, "
+            f"tip Y {range_text(s['y_tip_vals'])}, "
+            f"tip R {range_text(s['r_tip_vals'])}, "
+            f"tip Z {range_text(s['z_tip_vals'])}, "
             f"E+={s['e_total']:.5f}, moves={s['count']}"
         )
 
@@ -2025,7 +2181,19 @@ def backtransform_file(
             desired_first_layer_z=compensated_first_layer_machine_z,
         )
 
-        print_final_layer_footprint_summary(data_bt_string, max_layers=30)
+        print_final_layer_footprint_summary_by_z(
+            data_bt_string,
+            z_min_filter=3.0,
+            z_max_filter=8.0,
+        )
+
+        print_reconstructed_tip_footprint_by_z(
+            data_bt_string,
+            nozzle_offset=nozzle_offset,
+            z_min_filter=3.0,
+            z_max_filter=8.0,
+        )
+
     else:
         print("Flat test mode: shifting so first moving extrusion starts at desired first-layer height...")
         data_bt_string = auto_shift_cxzb_z_to_first_moving_extrusion(
