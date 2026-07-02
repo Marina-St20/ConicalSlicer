@@ -1804,6 +1804,106 @@ def print_gcode_xy_scaling_check(
     print(f"    X ratio: {output_x_size / input_x_size:.6f}")
     print(f"    Y ratio: {output_y_size / input_y_size:.6f}")
 
+def print_tip_xy_size_table_by_z(
+    data_bt_string,
+    nozzle_offset,
+    label,
+    z_min_filter=None,
+    z_max_filter=None,
+):
+    pattern_C = rf'C{NUM}'
+    pattern_X = rf'X{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_B = rf'B{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    current_layer = -1
+    current_z_height = None
+    layer_stats = {}
+
+    for row in data_bt_string.splitlines():
+        stripped = row.strip()
+
+        if stripped.startswith("; CHANGE_LAYER"):
+            current_layer += 1
+            continue
+
+        if stripped.startswith("; Z_HEIGHT:"):
+            try:
+                current_z_height = float(stripped.split(":")[1].strip())
+            except Exception:
+                current_z_height = None
+            continue
+
+        if current_layer < 0:
+            continue
+
+        if current_z_height is not None:
+            if z_min_filter is not None and current_z_height < z_min_filter:
+                continue
+            if z_max_filter is not None and current_z_height > z_max_filter:
+                continue
+
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        c_match = re.search(pattern_C, row)
+        x_match = re.search(pattern_X, row)
+        z_match = re.search(pattern_Z, row)
+        b_match = re.search(pattern_B, row)
+        e_match = re.search(pattern_E, row)
+
+        if c_match is None or x_match is None or z_match is None or b_match is None or e_match is None:
+            continue
+
+        e_val = float(e_match.group(0).replace("E", ""))
+
+        if e_val <= 0:
+            continue
+
+        c_axis = float(c_match.group(0).replace("C", ""))
+        x_axis = float(x_match.group(0).replace("X", ""))
+        z_axis = float(z_match.group(0).replace("Z", ""))
+        b_axis = float(b_match.group(0).replace("B", ""))
+
+        head_tilt_rad = np.deg2rad(-b_axis)
+
+        r_tip = x_axis - np.sin(head_tilt_rad) * nozzle_offset
+
+        c_rad = np.deg2rad(c_axis)
+
+        x_tip = r_tip * np.cos(c_rad)
+        y_tip = r_tip * np.sin(c_rad)
+
+        if current_layer not in layer_stats:
+            layer_stats[current_layer] = {
+                "z_height": current_z_height,
+                "x_tip_vals": [],
+                "y_tip_vals": [],
+                "r_tip_vals": [],
+            }
+
+        s = layer_stats[current_layer]
+        s["x_tip_vals"].append(x_tip)
+        s["y_tip_vals"].append(y_tip)
+        s["r_tip_vals"].append(r_tip)
+
+    print(f"Tip XY size table: {label}")
+    print("Z_HEIGHT, X_range, Y_range, R_max")
+
+    for layer in sorted(layer_stats.keys()):
+        s = layer_stats[layer]
+        xs = s["x_tip_vals"]
+        ys = s["y_tip_vals"]
+        rs = s["r_tip_vals"]
+
+        print(
+            f"{s['z_height']:.3f}, "
+            f"{max(xs)-min(xs):.5f}, "
+            f"{max(ys)-min(ys):.5f}, "
+            f"{max(rs):.5f}"
+        )
+
 def print_final_layer_footprint_summary_by_z(
     data_bt_string,
     z_min_filter=None,
@@ -2022,6 +2122,202 @@ def print_reconstructed_tip_footprint_by_z(
             f"E+={s['e_total']:.5f}, moves={s['count']}"
         )
 
+def print_tip_shape_profile_by_z(
+    data_bt_string,
+    nozzle_offset,
+    label,
+    z_min_filter=None,
+    z_max_filter=None,
+):
+    pattern_C = rf'C{NUM}'
+    pattern_X = rf'X{NUM}'
+    pattern_Z = rf'Z{NUM}'
+    pattern_B = rf'B{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    current_layer = -1
+    current_z_height = None
+    layer_stats = {}
+
+    for row in data_bt_string.splitlines():
+        stripped = row.strip()
+
+        if stripped.startswith("; CHANGE_LAYER"):
+            current_layer += 1
+            continue
+
+        if stripped.startswith("; Z_HEIGHT:"):
+            try:
+                current_z_height = float(stripped.split(":")[1].strip())
+            except Exception:
+                current_z_height = None
+            continue
+
+        if current_layer < 0:
+            continue
+
+        if current_z_height is not None:
+            if z_min_filter is not None and current_z_height < z_min_filter:
+                continue
+            if z_max_filter is not None and current_z_height > z_max_filter:
+                continue
+
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        c_match = re.search(pattern_C, row)
+        x_match = re.search(pattern_X, row)
+        z_match = re.search(pattern_Z, row)
+        b_match = re.search(pattern_B, row)
+        e_match = re.search(pattern_E, row)
+
+        if c_match is None or x_match is None or z_match is None or b_match is None or e_match is None:
+            continue
+
+        e_val = float(e_match.group(0).replace("E", ""))
+        if e_val <= 0:
+            continue
+
+        c_axis = float(c_match.group(0).replace("C", ""))
+        x_axis = float(x_match.group(0).replace("X", ""))
+        b_axis = float(b_match.group(0).replace("B", ""))
+
+        head_tilt_rad = np.deg2rad(-b_axis)
+
+        r_tip = x_axis - np.sin(head_tilt_rad) * nozzle_offset
+
+        c_rad = np.deg2rad(c_axis)
+
+        x_tip = r_tip * np.cos(c_rad)
+        y_tip = r_tip * np.sin(c_rad)
+
+        if current_layer not in layer_stats:
+            layer_stats[current_layer] = {
+                "z_height": current_z_height,
+                "x_vals": [],
+                "y_vals": [],
+                "r_vals": [],
+                "e_total": 0.0,
+                "count": 0,
+            }
+
+        s = layer_stats[current_layer]
+        s["x_vals"].append(x_tip)
+        s["y_vals"].append(y_tip)
+        s["r_vals"].append(r_tip)
+        s["e_total"] += e_val
+        s["count"] += 1
+
+    if not layer_stats:
+        print(f"Tip shape profile: {label}")
+        print("  No positive extrusion found in requested range.")
+        return
+
+    # Find max size in this filtered region for normalization.
+    max_r_seen = 0.0
+    max_xy_seen = 0.0
+
+    for s in layer_stats.values():
+        xs = s["x_vals"]
+        ys = s["y_vals"]
+        rs = s["r_vals"]
+
+        x_range = max(xs) - min(xs)
+        y_range = max(ys) - min(ys)
+        r_max = max(rs)
+
+        max_xy_seen = max(max_xy_seen, x_range, y_range)
+        max_r_seen = max(max_r_seen, r_max)
+
+    print(f"Tip shape profile: {label}")
+    print("Z_HEIGHT, X_range, Y_range, R_max, XY_center_x, XY_center_y, size_frac, R_frac, E_total, moves")
+
+    for layer in sorted(layer_stats.keys()):
+        s = layer_stats[layer]
+        xs = s["x_vals"]
+        ys = s["y_vals"]
+        rs = s["r_vals"]
+
+        x_min = min(xs)
+        x_max = max(xs)
+        y_min = min(ys)
+        y_max = max(ys)
+
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+        r_max = max(rs)
+
+        center_x = (x_min + x_max) / 2.0
+        center_y = (y_min + y_max) / 2.0
+
+        size_frac = max(x_range, y_range) / max_xy_seen if max_xy_seen > 0 else 0.0
+        r_frac = r_max / max_r_seen if max_r_seen > 0 else 0.0
+
+        print(
+            f"{s['z_height']:.3f}, "
+            f"{x_range:.5f}, "
+            f"{y_range:.5f}, "
+            f"{r_max:.5f}, "
+            f"{center_x:.5f}, "
+            f"{center_y:.5f}, "
+            f"{size_frac:.5f}, "
+            f"{r_frac:.5f}, "
+            f"{s['e_total']:.5f}, "
+            f"{s['count']}"
+        )
+
+def print_global_tip_size_summary(
+    data_bt_string,
+    nozzle_offset,
+    label,
+):
+    pattern_C = rf'C{NUM}'
+    pattern_X = rf'X{NUM}'
+    pattern_B = rf'B{NUM}'
+    pattern_E = rf'E{NUM}'
+
+    xs = []
+    ys = []
+    rs = []
+
+    for row in data_bt_string.splitlines():
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        c_match = re.search(pattern_C, row)
+        x_match = re.search(pattern_X, row)
+        b_match = re.search(pattern_B, row)
+        e_match = re.search(pattern_E, row)
+
+        if c_match is None or x_match is None or b_match is None or e_match is None:
+            continue
+
+        e_val = float(e_match.group(0).replace("E", ""))
+        if e_val <= 0:
+            continue
+
+        c_axis = float(c_match.group(0).replace("C", ""))
+        x_axis = float(x_match.group(0).replace("X", ""))
+        b_axis = float(b_match.group(0).replace("B", ""))
+
+        head_tilt_rad = np.deg2rad(-b_axis)
+
+        r_tip = x_axis - np.sin(head_tilt_rad) * nozzle_offset
+
+        c_rad = np.deg2rad(c_axis)
+
+        x_tip = r_tip * np.cos(c_rad)
+        y_tip = r_tip * np.sin(c_rad)
+
+        xs.append(x_tip)
+        ys.append(y_tip)
+        rs.append(r_tip)
+
+    print(f"Global tip size summary: {label}")
+    print(f"  X range: {min(xs):.5f} to {max(xs):.5f}, size={max(xs)-min(xs):.5f}")
+    print(f"  Y range: {min(ys):.5f} to {max(ys):.5f}, size={max(ys)-min(ys):.5f}")
+    print(f"  R max:   {max(rs):.5f}")
+
 def backtransform_file(
     path,
     output_dir,
@@ -2041,7 +2337,7 @@ def backtransform_file(
     b_sign=-1.0,
     safety_limits=None,
     machine_z_lift=0.0,
-    use_conical_z_backtransform=True,
+    use_conical_z_backtransform=False,
 ):
     """
     Full pipeline:
@@ -2181,19 +2477,6 @@ def backtransform_file(
             desired_first_layer_z=compensated_first_layer_machine_z,
         )
 
-        print_final_layer_footprint_summary_by_z(
-            data_bt_string,
-            z_min_filter=3.0,
-            z_max_filter=8.0,
-        )
-
-        print_reconstructed_tip_footprint_by_z(
-            data_bt_string,
-            nozzle_offset=nozzle_offset,
-            z_min_filter=3.0,
-            z_max_filter=8.0,
-        )
-
     else:
         print("Flat test mode: shifting so first moving extrusion starts at desired first-layer height...")
         data_bt_string = auto_shift_cxzb_z_to_first_moving_extrusion(
@@ -2201,6 +2484,42 @@ def backtransform_file(
             desired_first_print_z=z_desired,
         )
     
+    print_final_layer_footprint_summary_by_z(
+            data_bt_string,
+            z_min_filter=3.0,
+            z_max_filter=8.0,
+        )
+
+    print_reconstructed_tip_footprint_by_z(
+        data_bt_string,
+        nozzle_offset=nozzle_offset,
+        z_min_filter=3.0,
+        z_max_filter=8.0,
+    )
+
+    print_tip_xy_size_table_by_z(
+        data_bt_string,
+        nozzle_offset=nozzle_offset,
+        label="0deg",
+        z_min_filter=0.0,
+        z_max_filter=15.0,
+    )
+
+    print("HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
+    print_tip_shape_profile_by_z(
+        data_bt_string,
+        nozzle_offset=nozzle_offset,
+        label="0deg middle-top",
+        z_min_filter=6.0,
+        z_max_filter=26.0,
+    )
+
+    print_global_tip_size_summary(
+        data_bt_string,
+        nozzle_offset=nozzle_offset,
+        label="0deg",
+    )
+
     # print("Lifting any below-bed non-extrusion travel moves...")
     # data_bt_string = lift_nonextrusion_moves_below_min_z(
     #     data_bt_string,
@@ -2247,12 +2566,12 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_d20_medium_30deg_transformed_PLA_32m30s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_d20_medium_0deg_transformed_PLA_26m23s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  30         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  0         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
