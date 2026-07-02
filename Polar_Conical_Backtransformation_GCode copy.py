@@ -32,6 +32,7 @@ def read_fixed_header(path):
 def make_simple_start_gcode(
     nozzle_temp=210,
     bed_temp=60,
+    initial_b_angle=0.0,
 ):
     """
     Simple starter G-code for first 4-axis printer tests.
@@ -60,7 +61,7 @@ G92 E0 ; reset extruder
 
 ; --- safe clearance before 4-axis positioning ---
 G1 Z15.000 F1000 ; lift machine Z before rotating/tilting
-G1 B-30.00000 F1000 ; tilt nozzle while safely above bed
+G1 B{initial_b_angle:.5f} F1000 ; tilt nozzle while safely above bed
 ; --- end safe clearance move ---
 
 ; ------------------------------------------------------------
@@ -1919,10 +1920,15 @@ def backtransform_file(
 
     # fixed_header = read_fixed_header(fixed_header_path)
 
+    c = 1 if cone_type == "outward" else -1
+    initial_b_angle = b_sign * c * cone_angle_deg
+
     fixed_header = make_simple_start_gcode(
         nozzle_temp=210,
         bed_temp=60,
+        initial_b_angle=initial_b_angle,
     )
+    print(f"Initial safe B angle in header: B{initial_b_angle:.5f}")
 
     fixed_footer = make_simple_end_gcode(
         end_z_lift=10.0,
