@@ -65,7 +65,7 @@ def build_vectors(mesh):
         normal_a = normals[a]
         normal_b = normals[b]
 
-        vector = (normal_a + normal_b) / 2
+        vector = (normal_a + normal_b) / 20
 
         adjacency[a].append([b, vector])
         adjacency[b].append([a, vector])
@@ -147,7 +147,6 @@ def build_weights(mesh, adjacency, center=None, origins=[0], adjustment = .4):
     return weights
 
 def loop(queue, adjacency, distances, visited, start):
-     print(f"Loop")
      queue = [(0.0, int(start))]
      while queue:
         face = heapq.heappop(queue)
@@ -180,10 +179,16 @@ def main():
         threshold = float(sys.argv[2])
     else:
         threshold = 1
+
+    max_count = 10
     if len(sys.argv) > 3:
-        center = np.array([float(x) for x in sys.argv[3].split(',')])
+        max_count = int(sys.argv[3])
+
+    if len(sys.argv) > 4:
+        center = np.array([float(x) for x in sys.argv[4].split(',')])
     else:
         center[2] = 0
+
     print(f"Using center: {center} and threshold: {threshold}")
     
     start = time.perf_counter()
@@ -191,49 +196,59 @@ def main():
         ray_origins=[center], ray_directions=[[0,0,1]], multiple_hits=True)
     mask = mesh.face_normals[origins][:,2]
     origins = np.array(origins)[mask < 0]
+    mask = mesh.triangles_center[origins][:,2]
+    origins = np.array(origins)[mask > 1]
+
+    if len(origins) == 0:
+        origins = mesh.nearest.on_surface([center])[2]
+
     if len(origins) == 0:
         com = mesh.bounding_box.centroid.copy()
         com[2] = 0
         _,_, origins = mesh.ray.intersects_location(
             ray_origins=[com], ray_directions=[[0,0,1]], multiple_hits=True)
-    if len(origins) == 0:
-        origins = [0]
+    
+    np.array(origins, dtype=int)
+    print(f"Found {len(origins)} origin faces: {origins}")
 
     vectors = build_vectors(mesh)
     weights = build_weights(mesh, vectors, center, origins=origins, adjustment=.8)
 
     ordered = weights.argsort()
-    weights = weights[ordered]
-    mesh.update_faces(ordered)
-
     current_max = weights.argmax()
     mod = weights[current_max]
     max_weight = mod.copy()
 
-    print(f"Current max weight: {mod}, threshold: {max_weight * threshold}")
+    print(f"Max weight: {mod}, threshold: {max_weight * threshold}")
 
     # Repeat until the maximum weight is below the threshold percentage of the original maximum weight; set to greater than 1 to skip
-    while mod >= max_weight * threshold:
+    i = 0
+    while mod >= max_weight * threshold and i < max_count or i <= 1:
+        ordered = weights[weights.argsort()]
+        print(f"Top 3: {ordered[-3:]}")
         origins = np.append(origins, current_max)
-        weights = build_weights(mesh, vectors, origins=origins, adjustment=.8)
+        weights = build_weights(mesh, vectors, center, origins=origins, adjustment=0)
         ordered = weights.argsort()
-        weights = weights[ordered]
-        mesh.update_faces(ordered)
         current_max = weights.argmax()
         mod = weights[current_max]
         print(f"Current max weight: {mod}")
+        i += 1
 
-
+    weights = weights[ordered]
+    mesh.update_faces(ordered)
+    origins = np.array([np.where(ordered == i)[0][0] for i in origins])
     end = time.perf_counter()
 
-    print(f"{origins}")
-    print(f"Max weight: {mod}")
+    print(f"Origin faces: {len(origins)}")
+    print(f"Remaining weight: {mod}")
     if mod == 0:
         mod = 1
     for i in range(len(mesh.faces)):
         weight = weights[i]/mod * 255
         red = weight
         colors[i] = [red, 90, 60, 255]
+    for i in origins:
+        colors[i] = [255, 255, 255, 255]
 
     print(f"Time to scan: {end-start}")
     show_regions(mesh, colors=colors)
