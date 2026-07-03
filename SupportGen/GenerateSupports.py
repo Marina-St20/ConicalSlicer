@@ -21,7 +21,7 @@ def parse_center(center_string):
 
 def create_triangular_support(mesh, face_index, bottom_z, radius):
     centroid = mesh.triangles_center[face_index].copy()
-    origin = centroid + np.array([0.0, 0.0, 1e-6], dtype=float)
+    origin = centroid + np.array([0.0, 0.0, -.1], dtype=float)
     direction = np.array([0.0, 0.0, -1.0], dtype=float)
 
     locations, _, _ = mesh.ray.intersects_location(
@@ -36,7 +36,7 @@ def create_triangular_support(mesh, face_index, bottom_z, radius):
         mask = distances > 1e-6
         if np.any(mask):
             nearest = np.argmin(distances[mask])
-            support_end_z = max(bottom_z, locations[mask][nearest, 2])
+            support_end_z = max(bottom_z, locations[mask][nearest, 2] + .1)
 
     support_height = origin[2] - support_end_z
     if support_height <= 1:
@@ -49,9 +49,29 @@ def create_triangular_support(mesh, face_index, bottom_z, radius):
     transform[0, 3] = centroid[0]
     transform[1, 3] = centroid[1]
     transform[2, 3] = support_end_z + support_height / 2.0
+    transform = check_wall(mesh, face_index, transform, radius=radius, offset=-.2)
     support.apply_transform(transform)
 
     return support
+
+def check_wall(mesh, face_index, transform, radius=1, offset=.2):
+    centroid = mesh.triangles_center[face_index].copy()
+    origin = centroid + np.array([0.0, 0.0, offset*2], dtype=float)
+
+    locations = mesh.nearest.on_surface([origin])[0]
+    if len(locations) == 0:
+        return False
+    x = locations[0][0] - centroid[0]
+    y = locations[0][1] - centroid[1]
+    neg_x = x < 0
+    neg_y = y < 0
+    radius = radius/2
+    x = -radius if neg_x else radius
+    y = -radius if neg_y else radius
+    transform[0, 3] = transform[0, 3] + x
+    transform[1, 3] = transform[1, 3] + y
+
+    return transform
 
 
 def build_supports(mesh, face_indices, radius=None):
