@@ -109,10 +109,11 @@ def build_map(mesh, adjacency, origins=[0]):
 
     return distances
 
-def build_weights(mesh, adjacency, origins=[0], adjustment = .4):
+def build_weights(mesh, adjacency, center=None, origins=[0], adjustment = .4):
     weights = np.full(len(mesh.faces), np.inf, dtype=float)
-    com = mesh.bounding_box.centroid.copy()
-    com[2] = 0
+    if center is None:
+        center = mesh.bounding_box.centroid.copy()
+        center[2] = 0
     centroids = mesh.triangles_center
     visited = np.zeros(len(mesh.faces), dtype=bool)
     queue = []
@@ -128,7 +129,7 @@ def build_weights(mesh, adjacency, origins=[0], adjustment = .4):
         visited[face_idx] = True
         current_weight=face[0]
         centroid = centroids[face_idx].copy()
-        centroid = centroid - com
+        centroid = centroid - center
         norm = np.linalg.norm(centroid)
         normals = mesh.face_normals
 
@@ -164,12 +165,13 @@ def loop(queue, adjacency, distances, visited, start):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python FindSupportFaces.py <path_to_mesh> [optitonal: threshold_percentage] [optional: z_min]")
+        print("Usage: python FindSupportFaces.py <path_to_mesh> [optional: threshold_percentage] [optional: string of center]")
         return
 
     mesh_path = sys.argv[1]
     mesh = load_mesh(mesh_path)
     print(f"Loaded mesh from {mesh_path} with {len(mesh.faces)} faces.")
+    print(f"Mesh bounding box: {mesh.bounding_box.bounds}")
 
     colors = mesh.visual.face_colors
     center = mesh.bounding_box.centroid.copy()
@@ -179,13 +181,14 @@ def main():
     else:
         threshold = 1
     if len(sys.argv) > 3:
-        center[2] = float(sys.argv[3])
+        center = np.array([float(x) for x in sys.argv[3].split(',')])
     else:
         center[2] = 0
+    print(f"Using center: {center} and threshold: {threshold}")
     
     start = time.perf_counter()
     _, _, origins = mesh.ray.intersects_location(
-        ray_origins=[[0,0,0]], ray_directions=[[0,0,1]], multiple_hits=True)
+        ray_origins=[center], ray_directions=[[0,0,1]], multiple_hits=True)
     mask = mesh.face_normals[origins][:,2]
     origins = np.array(origins)[mask < 0]
     if len(origins) == 0:
@@ -197,27 +200,33 @@ def main():
         origins = [0]
 
     vectors = build_vectors(mesh)
-    weights = build_weights(mesh, vectors, origins=origins, adjustment=.8)
+    weights = build_weights(mesh, vectors, center, origins=origins, adjustment=.8)
 
     ordered = weights.argsort()
     weights = weights[ordered]
     mesh.update_faces(ordered)
 
-    mod = weights[weights.argmax()]
+    current_max = weights.argmax()
+    mod = weights[current_max]
     max_weight = mod.copy()
-    origins = np.append(origins, weights.argmax())
 
+    print(f"Current max weight: {mod}, threshold: {max_weight * threshold}")
+
+    # Repeat until the maximum weight is below the threshold percentage of the original maximum weight; set to greater than 1 to skip
     while mod >= max_weight * threshold:
+        origins = np.append(origins, current_max)
         weights = build_weights(mesh, vectors, origins=origins, adjustment=.8)
         ordered = weights.argsort()
         weights = weights[ordered]
         mesh.update_faces(ordered)
-        mod = weights[weights.argmax()]
+        current_max = weights.argmax()
+        mod = weights[current_max]
+        print(f"Current max weight: {mod}")
+
 
     end = time.perf_counter()
 
     print(f"{origins}")
-    print(f"{mesh.triangles_center[origins]}")
     print(f"Max weight: {mod}")
     if mod == 0:
         mod = 1
