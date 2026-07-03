@@ -33,13 +33,9 @@ def show_regions(mesh, face_indices=None, color=[1, 0, 0, 1], colors=None):
     _mesh.visual.face_colors = face_colors
     _mesh.show()
 
-def build_map(mesh, origins=[0]):
-    distances = np.full(len(mesh.faces), np.inf, dtype=float)
-    angle_threshold = 0
-    norms = mesh.face_normals.copy()
-
+def build_adjacency(mesh):
     if len(mesh.face_adjacency) == 0:
-        return np.array([origins], dtype=int), distances
+        return None
 
     adjacency = [[] for _ in range(len(mesh.faces))]
     centroids = mesh.triangles_center
@@ -49,14 +45,34 @@ def build_map(mesh, origins=[0]):
 
         face_a = centroids[a]
         face_b = centroids[b]
-        norm_a = norms[a]
-        norm_b = norms[b]
 
         dist = abs(np.linalg.norm(face_a-face_b))
-        weight = np.linalg.norm(norm_a - norm_b)
 
         adjacency[a].append([b, dist])
         adjacency[b].append([a, dist])
+    return adjacency
+
+def build_vectors(mesh):
+    if len(mesh.face_adjacency) == 0:
+        return None
+
+    adjacency = [[] for _ in range(len(mesh.faces))]
+    normals = mesh.face_normals
+    for a, b in mesh.face_adjacency:
+        a = int(a)
+        b = int(b)
+
+        normal_a = normals[a]
+        normal_b = normals[b]
+
+        vector = (normal_a + normal_b) / 2
+
+        adjacency[a].append([b, vector])
+        adjacency[b].append([a, vector])
+    return adjacency
+
+def build_map(mesh, adjacency, origins=[0]):
+    distances = np.full(len(mesh.faces), np.inf, dtype=float)
 
     # Use to examine full lists
     # np.savetxt("SharedList.txt", mesh.face_adjacency, "%d", ", ")
@@ -93,6 +109,42 @@ def build_map(mesh, origins=[0]):
 
     return distances
 
+def build_weights(mesh, adjacency, origins=[0], adjustment = .4):
+    weights = np.full(len(mesh.faces), np.inf, dtype=float)
+    com = mesh.bounding_box.centroid.copy()
+    com[2] = 0
+    centroids = mesh.triangles_center
+    visited = np.zeros(len(mesh.faces), dtype=bool)
+    queue = []
+    for i in origins:
+        weights[i] = 0.0
+        heapq.heappush(queue, (0.0, int(i)))
+
+    while queue:
+        face = heapq.heappop(queue)
+        face_idx=int(face[1])
+        if visited[face_idx]:
+            continue
+        visited[face_idx] = True
+        current_weight=face[0]
+        centroid = centroids[face_idx].copy()
+        centroid = centroid - com
+        norm = np.linalg.norm(centroid)
+        normals = mesh.face_normals
+
+        for neighbour_idx, vector in adjacency[face_idx]:
+            vector = normals[neighbour_idx]
+            direction = np.linalg.norm(centroid + vector)
+
+            weight = norm - direction - adjustment
+            if weight < 0:
+                weight = 0
+            new_weight = current_weight + weight
+            if not visited[neighbour_idx]:
+                weights[neighbour_idx] = new_weight
+                heapq.heappush(queue, (new_weight, neighbour_idx))
+    return weights
+
 def loop(queue, adjacency, distances, visited, start):
      print(f"Loop")
      queue = [(0.0, int(start))]
@@ -112,7 +164,7 @@ def loop(queue, adjacency, distances, visited, start):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python FindSupportFaces.py <path_to_mesh> [optional: z_min]")
+        print("Usage: python FindSupportFaces.py <path_to_mesh> [optitonal: threshold_percentage] [optional: z_min]")
         return
 
     mesh_path = sys.argv[1]
@@ -121,22 +173,57 @@ def main():
 
     colors = mesh.visual.face_colors
     center = mesh.bounding_box.centroid.copy()
+
     if len(sys.argv) > 2:
-        center[2] = float(sys.argv[2])
+        threshold = float(sys.argv[2])
+    else:
+        threshold = 1
+    if len(sys.argv) > 3:
+        center[2] = float(sys.argv[3])
     else:
         center[2] = 0
-
+    
     start = time.perf_counter()
     _, _, origins = mesh.ray.intersects_location(
         ray_origins=[[0,0,0]], ray_directions=[[0,0,1]], multiple_hits=True)
-    origins = origins[mesh.face_normals[origins][:,2] < 0]
-    distances = build_map(mesh, origins=origins)
-    end = time.perf_counter()
-    mod = distances[distances.argmax()]
+    mask = mesh.face_normals[origins][:,2]
+    origins = np.array(origins)[mask < 0]
+    if len(origins) == 0:
+        com = mesh.bounding_box.centroid.copy()
+        com[2] = 0
+        _,_, origins = mesh.ray.intersects_location(
+            ray_origins=[com], ray_directions=[[0,0,1]], multiple_hits=True)
+    if len(origins) == 0:
+        origins = [0]
 
+    vectors = build_vectors(mesh)
+    weights = build_weights(mesh, vectors, origins=origins, adjustment=.8)
+
+    ordered = weights.argsort()
+    weights = weights[ordered]
+    mesh.update_faces(ordered)
+
+    mod = weights[weights.argmax()]
+    max_weight = mod.copy()
+    origins = np.append(origins, weights.argmax())
+
+    while mod >= max_weight * threshold:
+        weights = build_weights(mesh, vectors, origins=origins, adjustment=.8)
+        ordered = weights.argsort()
+        weights = weights[ordered]
+        mesh.update_faces(ordered)
+        mod = weights[weights.argmax()]
+
+    end = time.perf_counter()
+
+    print(f"{origins}")
+    print(f"{mesh.triangles_center[origins]}")
+    print(f"Max weight: {mod}")
+    if mod == 0:
+        mod = 1
     for i in range(len(mesh.faces)):
-        distance = distances[i]/mod * 255
-        red = distance
+        weight = weights[i]/mod * 255
+        red = weight
         colors[i] = [red, 90, 60, 255]
 
     print(f"Time to scan: {end-start}")
