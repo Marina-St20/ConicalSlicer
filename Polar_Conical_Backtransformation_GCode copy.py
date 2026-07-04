@@ -242,6 +242,7 @@ def cartesian_to_cxzb(
 
     # Nozzle pivot compensation.
     radius_comp = radius + np.sin(head_tilt_rad) * nozzle_offset
+ 
     z_comp = z_cart + (np.cos(head_tilt_rad) - 1.0) * nozzle_offset
 
     c_axis = c_sign * np.rad2deg(theta_accum)
@@ -2566,12 +2567,12 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_d20_medium_0deg_transformed_PLA_26m23s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_d20_medium_30deg_transformed_PLA_32m30s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  0         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  30         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
@@ -2633,7 +2634,7 @@ safety_limits["enable_shadow_box_check"] = False
 
 use_conical_z_backtransform = True  # False = flat-bed first hardware print test #should be True for real conical backtransform
 
-# TODO REPLACE LATER:
+# TODO REPLACE LATER: (WILL NEED FOR WHEN WE CHANGE NOZZLE ANGLE)
 # Fill these in when you know the real print head and bed geometry.
 safety_limits["bed_radius_mm"] = 150.0
 safety_limits["head_shadow_radius_mm"] = 0.0
