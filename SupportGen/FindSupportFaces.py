@@ -1,22 +1,44 @@
+from collections import deque
 import heapq
 import sys
 import time
 import numpy as np
 import trimesh
 from vispy.plot import Fig
+from scipy.spatial import ckdtree
+from itertools import combinations
 
 def load_mesh(path):
-    mesh = trimesh.load_mesh(path)
+    mesh = trimesh.load_mesh(path, process=True)
     if mesh.is_empty:
         raise ValueError(f"Loaded mesh is empty: {path}")
     if not isinstance(mesh, trimesh.Trimesh):
         mesh = trimesh.util.concatenate(tuple(mesh.geometry.values()))
-    try:
-        mesh.remove_duplicate_faces()
-        mesh.remove_degenerate_faces()
-    except Exception:
-        pass
-    mesh.process(validate=True)
+    mesh.remove_infinite_values()
+    mesh.update_faces(mesh.unique_faces())
+    mesh.merge_vertices()
+    bad = trimesh.repair.broken_faces(mesh)
+    if (len(bad) > 0):
+        print(f"{bad}")
+        faces = mesh.faces[bad]
+        vertices = np.unique(faces)
+        pairs = np.array(list(combinations(vertices, 2)))
+        positions = mesh.vertices[pairs]
+
+        v1 = positions[:, 0, :]
+        v2 = positions[:, 1, :]
+
+        distances = np.linalg.norm(v1 - v2, axis=1)
+        distance_threshold = .1
+        mask = distances < distance_threshold
+
+        vertices = pairs[mask]
+        for v1, v2 in vertices:
+            mesh._data['vertices'][v2] = mesh.vertices[v1]
+        mesh._cache.clear()
+        mesh.merge_vertices(True, True)
+        trimesh.repair.fill_holes(mesh)
+        mesh = trimesh.Trimesh(vertices=mesh.vertices, faces=mesh.faces, validate=True)
     return mesh
 
 def show_regions(mesh, face_indices=None, color=[1, 0, 0, 1], colors=None):
@@ -66,9 +88,14 @@ def build_vectors(mesh):
         normal_b = normals[b]
 
         vector = (normal_a + normal_b) / 20
+        dot = np.linalg.multi_dot([normal_a, normal_b])
+        if -.1 < dot and dot < 0:
+            dot = -.1
+        elif 0 <= dot and dot < .1:
+            dot = .1
 
-        adjacency[a].append([b, vector])
-        adjacency[b].append([a, vector])
+        adjacency[a].append([b, vector, dot])
+        adjacency[b].append([a, vector, dot])
     return adjacency
 
 def build_map(mesh, adjacency, origins=[0]):
@@ -109,7 +136,7 @@ def build_map(mesh, adjacency, origins=[0]):
 
     return distances
 
-def build_weights(mesh, adjacency, center=None, origins=[0], adjustment = .4):
+def build_weights_d(mesh, adjacency, center=None, origins=[0], adjustment = .4):
     weights = np.full(len(mesh.faces), np.inf, dtype=float)
     if center is None:
         center = mesh.bounding_box.centroid.copy()
@@ -133,17 +160,56 @@ def build_weights(mesh, adjacency, center=None, origins=[0], adjustment = .4):
         norm = np.linalg.norm(centroid)
         normals = mesh.face_normals
 
-        for neighbour_idx, vector in adjacency[face_idx]:
+        for neighbour_idx, vector, dot in adjacency[face_idx]:
             vector = normals[neighbour_idx]
             direction = np.linalg.norm(centroid + vector)
+            dot = .1/np.abs(dot)
 
-            weight = norm - direction - adjustment
-            if weight < 0:
+            weight = (norm - direction - adjustment) * (dot + .1)
+            if weight < 0 or dot < .1:
                 weight = 0
             new_weight = current_weight + weight
             if not visited[neighbour_idx]:
                 weights[neighbour_idx] = new_weight
                 heapq.heappush(queue, (new_weight, neighbour_idx))
+    return weights
+
+def build_weights_b(mesh, adjacency, center=None, origins=[0], adjustment = .4):
+    weights = np.full(len(mesh.faces), np.inf, dtype=float)
+    if center is None:
+        center = mesh.bounding_box.centroid.copy()
+        center[2] = 0
+    centroids = mesh.triangles_center
+    visited = np.zeros(len(mesh.faces), dtype=bool)
+    queue = deque()
+    for i in origins:
+        weights[i] = 0.0
+        queue.append((0.0, int(i)))
+
+    while queue:
+        face = queue.popleft()
+        face_idx=int(face[1])
+        if visited[face_idx]:
+            continue
+        visited[face_idx] = True
+        current_weight=face[0]
+        centroid = centroids[face_idx].copy()
+        centroid = centroid - (center + [0,0,centroid[2] * .5])
+        norm = np.linalg.norm(centroid)
+        normals = mesh.face_normals
+
+        for neighbour_idx, vector, dot in adjacency[face_idx]:
+            # vector = normals[neighbour_idx]
+            direction = np.linalg.norm(centroid + vector)
+            dot = .1/np.abs(dot)
+
+            weight = (norm - direction - adjustment) * (dot + .1)
+            if dot > -.1 and dot < .1:
+                weight = 0
+            new_weight = current_weight + weight
+            if not visited[neighbour_idx]:
+                weights[neighbour_idx] = new_weight
+                queue.append((new_weight, neighbour_idx))
     return weights
 
 
@@ -160,37 +226,47 @@ def find_support_faces(mesh, threshold=1.0, max_count=10, center=None):
         mask = mesh.face_normals[origins][:, 2]
         origins = np.array(origins)[mask < 0]
         mask = mesh.triangles_center[origins][:, 2]
-        origins = np.array(origins)[mask > 0]
-    if len(origins) == 0:
-        origins = mesh.nearest.on_surface([center])[2]
-    if len(origins) == 0:
-        com = mesh.bounding_box.centroid.copy()
-        com[2] = 0
-        _, _, origins = mesh.ray.intersects_location(
-            ray_origins=[com], ray_directions=[[0, 0, 1]], multiple_hits=True)
-    if len(origins) == 0:
-        return origins
+        origins = np.array(origins)[mask > 0.4]
+
+    length = len(origins)
+    mask = np.where(mesh.triangles_center[:,2] < .1)
+    if len(mask) > 0: 
+        origins = np.concat([mask[0], origins])
+    
+    i=.2
+    while (len(origins) == 0):
+        mask = np.where(mesh.triangles_center[:,2] < i)
+        if len(mask) > 0: 
+            origins = np.concat([mask[0], origins])
+        i+=.1
+    
+    if length != 0:
+        length = len(mask[0])
 
     vectors = build_vectors(mesh)
     if vectors is None:
         return origins
 
-    weights = build_weights(mesh, vectors, center, origins=origins, adjustment=.8)
+    weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=.8)
     current_max = int(np.argmax(weights))
     max_weight = float(weights[current_max])
     mod = max_weight
     i = 0
     while (mod >= max_weight * threshold and i < max_count) or i <= 1:
         origins = np.append(origins, current_max)
-        weights = build_weights(mesh, vectors, center, origins=origins, adjustment=0.6)
+        weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=0.6)
         current_max = int(np.argmax(weights))
         mod = float(weights[current_max])
         i += 1
+    
+    origins = origins[length:]
 
     return np.unique(origins.astype(int))
 
 
 def loop(queue, adjacency, distances, visited, start):
+     if isinstance(queue, deque):
+        return
      queue = [(0.0, int(start))]
      while queue:
         face = heapq.heappop(queue)
@@ -243,17 +319,24 @@ def main():
         mask = mesh.triangles_center[origins][:,2]
         origins = np.array(origins)[mask > 0]
 
-    if len(origins) == 0:
-        origins = mesh.nearest.on_surface([center])[2]
+    length = len(origins)
+    mask = np.where(mesh.triangles_center[:,2] < .1)
+    print(f"{len(origins)} {len(mask[0])}")
+    if len(mask) > 0: 
+        origins = np.concat([mask[0], origins])
+    
+    i = .2
+    while (len(origins) == 0):
+        mask = np.where(mesh.triangles_center[:,2] < i)
+        if len(mask) > 0: 
+            origins = np.concat([mask[0], origins])
+        i+=.1
 
-    if len(origins) == 0:
-        com = mesh.bounding_box.centroid.copy()
-        com[2] = 0
-        _,_, origins = mesh.ray.intersects_location(
-            ray_origins=[com], ray_directions=[[0,0,1]], multiple_hits=True)
+    if length != 0 or i==.2:
+        length = len(mask[0])
     
     vectors = build_vectors(mesh)
-    weights = build_weights(mesh, vectors, center, origins=origins, adjustment=.8)
+    weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=.8)
 
     ordered = weights.argsort()
     current_max = weights.argmax()
@@ -262,12 +345,12 @@ def main():
 
     print(f"Max weight: {mod}, threshold: {max_weight * threshold}")
 
-    # Repeat until the maximum weight is below the threshold percentage of the original maximum weight; set to greater than 1 to skip
+    # Repeat until the maximum weight is below the threshold percentage of the original maximum weight
     i = 0
     while mod >= max_weight * threshold and i < max_count or i <= 1:
         ordered = weights[weights.argsort()]
         origins = np.append(origins, current_max)
-        weights = build_weights(mesh, vectors, center, origins=origins, adjustment=0.6)
+        weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=0.6)
         ordered = weights.argsort()
         current_max = weights.argmax()
         mod = weights[current_max]
@@ -275,6 +358,10 @@ def main():
 
     weights = weights[ordered]
     mesh.update_faces(ordered)
+    print(f"{length}")
+    print(f"{origins}")
+    origins = origins[length:]
+    print(f"{origins}")
     origins = np.array([np.where(ordered == i)[0][0] for i in origins])
     end = time.perf_counter()
 
