@@ -205,25 +205,19 @@ def build_weights_b(mesh, adjacency, center=None, origins=[0], adjustment = .04)
                 normal_z = 0
             direction = np.linalg.norm(centroid + vector)
             
-            # Avoid divide-by-zero or math inversion if dot equals exactly zero
             dot_val = .1 / -dot if dot != 0 else 0 
             
             norm_delta = norm - direction
             weight = (norm_delta - adjustment) * dot_val * normal_z
             
-            # Fixed interval edge check for your clamped vector bounds
             if -.1001 < dot < .1001:
                 weight = 0
                 
             new_weight = current_weight + weight
             
-            # If the neighbor was already reached in this wave layer, 
-            # pick the optimal path value (e.g., minimizing weight) instead of blinding overwriting
             if new_weight < weights[neighbour_idx]:
                 weights[neighbour_idx] = new_weight
                 
-            # To strictly follow radial layers, append to the BFS queue 
-            # and mark visited to prevent backward pollution
             queue.append((new_weight, neighbour_idx))
             visited[neighbour_idx] = True
             
@@ -257,7 +251,7 @@ def find_support_faces(mesh, threshold=1.0, max_count=10, center=None, alg="b"):
             origins = np.concat([mask[0], origins])
         i+=.1
     
-    if length != 0:
+    if length != 0 or i == .2:
         length = len(mask[0])
 
     vectors = build_vectors(mesh)
@@ -265,7 +259,7 @@ def find_support_faces(mesh, threshold=1.0, max_count=10, center=None, alg="b"):
         return origins
 
     if alg=="b":
-        weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=0)
+        weights = build_weights_b(mesh, vectors, center, origins=origins)
     else:
         weights = build_weights_d(mesh, vectors, center, origins=origins, adjustment=.6)
     current_max = int(np.argmax(weights))
@@ -275,10 +269,10 @@ def find_support_faces(mesh, threshold=1.0, max_count=10, center=None, alg="b"):
     while (mod >= max_weight * threshold and i < max_count) or i <= 1:
         origins = np.append(origins, current_max)
         if alg=="b":
-            weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=0)
+            weights = build_weights_b(mesh, vectors, center, origins=origins)
         else:
             weights = build_weights_d(mesh, vectors, center, origins=origins, adjustment=.6)        
-        current_max = int(np.argmax(weights))
+        current_max = weights.argmax()
         mod = float(weights[current_max])
         i += 1
     
@@ -353,7 +347,7 @@ def main():
     i = .2
     while (len(origins) == 0):
         mask = np.where(mesh.triangles_center[:,2] < i)
-        if len(mask) > 0: 
+        if len(mask[0]) > 0: 
             origins = np.concat([mask[0], origins])
         i+=.1
 
