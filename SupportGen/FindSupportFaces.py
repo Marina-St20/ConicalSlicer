@@ -4,8 +4,6 @@ import sys
 import time
 import numpy as np
 import trimesh
-from vispy.plot import Fig
-from scipy.spatial import ckdtree
 from itertools import combinations
 
 def load_mesh(path):
@@ -88,7 +86,7 @@ def build_vectors(mesh):
         normal_b = normals[b]
 
         vector = (normal_a + normal_b) / 20
-        dot = np.linalg.multi_dot([normal_a, normal_b])
+        dot = np.dot(normal_a, normal_b)
         if -.1 < dot and dot < 0:
             dot = -.1
         elif 0 <= dot and dot < .1:
@@ -136,7 +134,7 @@ def build_map(mesh, adjacency, origins=[0]):
 
     return distances
 
-def build_weights_d(mesh, adjacency, center=None, origins=[0], adjustment = .4):
+def build_weights_d(mesh, adjacency, center=None, origins=[0], adjustment = .04):
     weights = np.full(len(mesh.faces), np.inf, dtype=float)
     if center is None:
         center = mesh.bounding_box.centroid.copy()
@@ -161,7 +159,7 @@ def build_weights_d(mesh, adjacency, center=None, origins=[0], adjustment = .4):
         normals = mesh.face_normals
 
         for neighbour_idx, vector, dot in adjacency[face_idx]:
-            vector = normals[neighbour_idx]
+            # vector = normals[neighbour_idx]
             direction = np.linalg.norm(centroid + vector)
             dot = .1/np.abs(dot)
 
@@ -174,46 +172,65 @@ def build_weights_d(mesh, adjacency, center=None, origins=[0], adjustment = .4):
                 heapq.heappush(queue, (new_weight, neighbour_idx))
     return weights
 
-def build_weights_b(mesh, adjacency, center=None, origins=[0], adjustment = .4):
+def build_weights_b(mesh, adjacency, center=None, origins=[0], adjustment = .04):
     weights = np.full(len(mesh.faces), np.inf, dtype=float)
     if center is None:
         center = mesh.bounding_box.centroid.copy()
         center[2] = 0
+        
     centroids = mesh.triangles_center
+    normals = mesh.face_normals # Extract completely outside the loop to fix memory bottleneck
+    
     visited = np.zeros(len(mesh.faces), dtype=bool)
     queue = deque()
+    
     for i in origins:
         weights[i] = 0.0
         queue.append((0.0, int(i)))
+        visited[int(i)] = True # Mark origins visited immediately
 
     while queue:
-        face = queue.popleft()
-        face_idx=int(face[1])
-        if visited[face_idx]:
-            continue
-        visited[face_idx] = True
-        current_weight=face[0]
+        current_weight, face_idx = queue.popleft()
+        
         centroid = centroids[face_idx].copy()
-        centroid = centroid - (center + [0,0,centroid[2] * .5])
+        centroid = centroid - (center + [0, 0, centroid[2] * .5])
         norm = np.linalg.norm(centroid)
-        normals = mesh.face_normals
 
         for neighbour_idx, vector, dot in adjacency[face_idx]:
-            # vector = normals[neighbour_idx]
+            if visited[neighbour_idx]:
+                continue
+                
+            normal_z = normals[face_idx][2]
+            if normal_z > -.3:
+                normal_z = 0
             direction = np.linalg.norm(centroid + vector)
-            dot = .1/np.abs(dot)
-
-            weight = (norm - direction - adjustment) * (dot + .1)
-            if dot > -.1 and dot < .1:
+            
+            # Avoid divide-by-zero or math inversion if dot equals exactly zero
+            dot_val = .1 / -dot if dot != 0 else 0 
+            
+            norm_delta = norm - direction
+            weight = (norm_delta - adjustment) * dot_val * normal_z
+            
+            # Fixed interval edge check for your clamped vector bounds
+            if -.1001 < dot < .1001:
                 weight = 0
+                
             new_weight = current_weight + weight
-            if not visited[neighbour_idx]:
+            
+            # If the neighbor was already reached in this wave layer, 
+            # pick the optimal path value (e.g., minimizing weight) instead of blinding overwriting
+            if new_weight < weights[neighbour_idx]:
                 weights[neighbour_idx] = new_weight
-                queue.append((new_weight, neighbour_idx))
+                
+            # To strictly follow radial layers, append to the BFS queue 
+            # and mark visited to prevent backward pollution
+            queue.append((new_weight, neighbour_idx))
+            visited[neighbour_idx] = True
+            
     return weights
 
 
-def find_support_faces(mesh, threshold=1.0, max_count=10, center=None):
+def find_support_faces(mesh, threshold=1.0, max_count=10, center=None, alg="b"):
     if center is None:
         center = mesh.bounding_box.centroid.copy()
         center[2] = 0
@@ -236,7 +253,7 @@ def find_support_faces(mesh, threshold=1.0, max_count=10, center=None):
     i=.2
     while (len(origins) == 0):
         mask = np.where(mesh.triangles_center[:,2] < i)
-        if len(mask) > 0: 
+        if len(mask[0]) > 0: 
             origins = np.concat([mask[0], origins])
         i+=.1
     
@@ -247,14 +264,20 @@ def find_support_faces(mesh, threshold=1.0, max_count=10, center=None):
     if vectors is None:
         return origins
 
-    weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=.8)
+    if alg=="b":
+        weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=0)
+    else:
+        weights = build_weights_d(mesh, vectors, center, origins=origins, adjustment=.6)
     current_max = int(np.argmax(weights))
     max_weight = float(weights[current_max])
     mod = max_weight
     i = 0
     while (mod >= max_weight * threshold and i < max_count) or i <= 1:
         origins = np.append(origins, current_max)
-        weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=0.6)
+        if alg=="b":
+            weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=0)
+        else:
+            weights = build_weights_d(mesh, vectors, center, origins=origins, adjustment=.6)        
         current_max = int(np.argmax(weights))
         mod = float(weights[current_max])
         i += 1
@@ -309,7 +332,9 @@ def main():
         center[2] = 0
 
     print(f"Using center: {center} and threshold: {threshold}")
-    
+
+    alg="b"
+
     start = time.perf_counter()
     _, _, origins = mesh.ray.intersects_location(
         ray_origins=[center], ray_directions=[[0,0,1]], multiple_hits=True)
@@ -317,12 +342,12 @@ def main():
         mask = mesh.face_normals[origins][:,2]
         origins = np.array(origins)[mask < 0]
         mask = mesh.triangles_center[origins][:,2]
-        origins = np.array(origins)[mask > 0]
+        origins = np.array(origins)[mask > 0.4]
 
     length = len(origins)
     mask = np.where(mesh.triangles_center[:,2] < .1)
     print(f"{len(origins)} {len(mask[0])}")
-    if len(mask) > 0: 
+    if len(mask[0]) > 0: 
         origins = np.concat([mask[0], origins])
     
     i = .2
@@ -336,8 +361,10 @@ def main():
         length = len(mask[0])
     
     vectors = build_vectors(mesh)
-    weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=.8)
-
+    if alg=="b":
+        weights = build_weights_b(mesh, vectors, center, origins=origins)
+    else:
+        weights = build_weights_d(mesh, vectors, center, origins=origins, adjustment=.04)
     ordered = weights.argsort()
     current_max = weights.argmax()
     mod = weights[current_max]
@@ -350,7 +377,10 @@ def main():
     while mod >= max_weight * threshold and i < max_count or i <= 1:
         ordered = weights[weights.argsort()]
         origins = np.append(origins, current_max)
-        weights = build_weights_b(mesh, vectors, center, origins=origins, adjustment=0.6)
+        if alg=="b":
+            weights = build_weights_b(mesh, vectors, center, origins=origins)
+        else:
+            weights = build_weights_d(mesh, vectors, center, origins=origins, adjustment=.04)
         ordered = weights.argsort()
         current_max = weights.argmax()
         mod = weights[current_max]
