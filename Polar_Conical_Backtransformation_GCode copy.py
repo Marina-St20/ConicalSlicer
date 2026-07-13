@@ -1716,6 +1716,69 @@ def tune_relative_extrusion_values(
 
     return "\n".join(tuned_lines) + "\n"
 
+def remove_4axis_motion_after_last_positive_extrusion(data_bt_string):
+    """
+    Remove generated C/X/Z/B motion after the last positive-extrusion move.
+
+    Keeps comments and E-only retracts/primes if needed, but removes full
+    4-axis travel moves that happen after model printing is done.
+    """
+    pattern_E = rf'(^|\s)E{NUM}'
+    pattern_C = rf'(^|\s)C{NUM}'
+    pattern_X = rf'(^|\s)X{NUM}'
+    pattern_Z = rf'(^|\s)Z{NUM}'
+    pattern_B = rf'(^|\s)B{NUM}'
+
+    lines = data_bt_string.splitlines()
+
+    last_positive_e_index = None
+
+    for i, row in enumerate(lines):
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        e_match = re.search(pattern_E, row)
+        if e_match is None:
+            continue
+
+        e_word = e_match.group(0).strip()
+        e_val = float(e_word.replace("E", ""))
+
+        if e_val > 0:
+            last_positive_e_index = i
+
+    if last_positive_e_index is None:
+        print("  WARNING: No positive extrusion found. End-motion cleanup skipped.")
+        return data_bt_string
+
+    cleaned_lines = []
+    removed_count = 0
+
+    for i, row in enumerate(lines):
+        if i <= last_positive_e_index:
+            cleaned_lines.append(row)
+            continue
+
+        if not row.startswith(("G0", "G1")):
+            cleaned_lines.append(row)
+            continue
+
+        has_c = re.search(pattern_C, row) is not None
+        has_x = re.search(pattern_X, row) is not None
+        has_z = re.search(pattern_Z, row) is not None
+        has_b = re.search(pattern_B, row) is not None
+        has_full_4axis_motion = has_c and has_x and has_z and has_b
+
+        if has_full_4axis_motion:
+            removed_count += 1
+            continue
+
+        cleaned_lines.append(row)
+
+    print(f"  Removed {removed_count} full 4-axis travel move(s) after last positive extrusion.")
+
+    return "\n".join(cleaned_lines) + "\n"
+
 def print_gcode_xy_scaling_check(
     data,
     cone_angle_deg,
@@ -2456,6 +2519,11 @@ def backtransform_file(
         print_extrusion_multiplier=1.00, #Normal print extrusion unchanged
     )
 
+    print("Removing generated 4-axis travel moves after last print extrusion...")
+    data_bt_string = remove_4axis_motion_after_last_positive_extrusion(
+        data_bt_string
+    )
+
     if use_conical_z_backtransform:
         cone_angle_rad = np.radians(cone_angle_deg)
         c = 1 if cone_type == "outward" else -1
@@ -2567,12 +2635,12 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_Standing Dogbone_30deg_transformed_PLA_1h17m.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_Standing Dogbone_40deg_transformed_PLA_1h18m.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  30         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  40         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
