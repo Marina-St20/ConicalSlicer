@@ -2635,12 +2635,12 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_Standing Dogbone_40deg_transformed_PLA_1h18m.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_cube_30deg_transformed_PLA_25m5s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  40         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  30         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
@@ -2656,7 +2656,7 @@ machine_z_lift = 0.0   # lift compensated CXZB Z so it stays above min_z
 fixed_extrusion = 0.0275  # constant E value applied to every extrusion move
 use_fixed_extrusion = False  # False = preserve slicer E values, True = force fixed E
 
-nozzle_offset = 43.5  # mm, replace with real value
+nozzle_offset = 41.5  # mm, replace with real value
 b_sign = -1.0         # flip to +1 if B tilts wrong way
 c_sign = 1.0          # flip to -1 if bed rotates opposite direction
 
