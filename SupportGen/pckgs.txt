@@ -1,4 +1,4 @@
-pip install numpy pip pyglet<2 scipy rtree setuptools wheel vispy trimesh manifold3d networkx
+pip install numpy pip pyglet<2 scipy rtree setuptools wheel vispy trimesh manifold3d networkx embreex python-fcl
 
 # triangle through git: 
 pip install git+https://github.com/drufat/triangle.git
