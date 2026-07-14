@@ -61,20 +61,36 @@ def transformation_cone(points, cone_type, cone_angle_deg):
     points_transformed = list(map(T, points[:, 0], points[:, 1], points[:, 2]))
     return np.array(points_transformed)
 
-def center_model(vectors_refined):
+def center_model(vectors_refined, cone_center_mode="model", cone_center_x=0.0, cone_center_y=0.0):
     vectors_refined = vectors_refined.copy()
 
     min_xyz = np.min(vectors_refined, axis=0)
     max_xyz = np.max(vectors_refined, axis=0)
 
-    center_x = (min_xyz[0] + max_xyz[0]) / 2
-    center_y = (min_xyz[1] + max_xyz[1]) / 2
+    model_center_x = (min_xyz[0] + max_xyz[0]) / 2
+    model_center_y = (min_xyz[1] + max_xyz[1]) / 2
     min_z = min_xyz[2]
 
     print("Original STL bounds:")
-    print(f"  X: {min_xyz[0]:.3f} to {max_xyz[0]:.3f}, center {center_x:.3f}")
-    print(f"  Y: {min_xyz[1]:.3f} to {max_xyz[1]:.3f}, center {center_y:.3f}")
+    print(f"  X: {min_xyz[0]:.3f} to {max_xyz[0]:.3f}, center {model_center_x:.3f}")
+    print(f"  Y: {min_xyz[1]:.3f} to {max_xyz[1]:.3f}, center {model_center_y:.3f}")
     print(f"  Z: {min_xyz[2]:.3f} to {max_xyz[2]:.3f}")
+
+    if cone_center_mode == "model":
+        # Old behavior: cone center follows the model center
+        center_x = model_center_x
+        center_y = model_center_y
+
+    elif cone_center_mode == "world":
+        # New behavior: cone center is a fixed STL/world coordinate
+        # This preserves model offset relative to the cone center.
+        center_x = cone_center_x
+        center_y = cone_center_y
+
+    else:
+        raise ValueError("cone_center_mode must be 'model' or 'world'")
+
+    print(f"Using cone center: X={center_x:.3f}, Y={center_y:.3f}")
 
     vectors_refined[:, 0] -= center_x
     vectors_refined[:, 1] -= center_y
@@ -98,16 +114,29 @@ def sit_model_on_build_plate(vectors_transformed):
 
     return vectors_transformed
 
-def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_angle_deg):
+def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_angle_deg, cone_center_mode="model", cone_center_x=0.0, cone_center_y=0.0):
     start = time.time()
     my_mesh = mesh.Mesh.from_file(path)
     vectors = my_mesh.vectors
     vectors_refined = refinement_triangulation(vectors, nb_iterations)
     vectors_refined = np.reshape(vectors_refined, (-1, 3))
 
-    vectors_refined = center_model(vectors_refined)
+    vectors_refined = center_model(
+        vectors_refined,
+        cone_center_mode=cone_center_mode,
+        cone_center_x=cone_center_x,
+        cone_center_y=cone_center_y
+    )
 
     vectors_transformed = transformation_cone(vectors_refined, cone_type, cone_angle_deg)
+
+    # vectors_transformed = sit_model_on_build_plate(vectors_transformed)
+
+    # If using a fixed/world cone center, put the transformed STL back
+    # into the original bed/world coordinate system before saving.
+    if cone_center_mode == "world":
+        vectors_transformed[:, 0] += cone_center_x
+        vectors_transformed[:, 1] += cone_center_y
 
     vectors_transformed = sit_model_on_build_plate(vectors_transformed)
 
@@ -119,7 +148,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"{name}_{cone_type}_{cone_angle_deg}deg_transformed{ext}"
+    file_name = f"Conical_{name}_{cone_angle_deg}deg_transformed{ext}"
     output_path = os.path.join(output_dir, file_name)
     my_mesh_transformed.save(output_path)
 
@@ -132,12 +161,24 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # Parameters
 # ---------------------------------------------------------------
 
+# ---------------------------------------------------------------
+# Cone center settings
+# ---------------------------------------------------------------
+# "model" = old behavior: cone center is the STL/model center
+# "world" = cone center is fixed in STL coordinates, so moving the STL changes its offset from the cone
+cone_center_mode = "world"
+
+# For Bambu/A1-style centered coordinates, use the location you want as the cone origin.
+# If your STL was exported from Bambu with bed coordinates, A1 center is usually around 128,128.
+cone_center_x = 128.0
+cone_center_y = 128.0
+
 #file_path = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\ASTM_Dogbone.stl"
-file_path = r"C:\Users\canca\Downloads\smug_goat.stl"
-dir_transformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
+file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\Flat Dogbone centered x175.stl"
+dir_transformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
 number_iterations = 0                # mesh refinement iterations
-cone_angle_degrees = 7.5            # recommended: 5-20 deg for cartesian printers
+cone_angle_degrees = 10            # recommended: 5-20 deg for cartesian printers
 
 transformation_STL_file(
     path=file_path,
@@ -145,4 +186,7 @@ transformation_STL_file(
     cone_type=transformation_type,
     nb_iterations=number_iterations,
     cone_angle_deg=cone_angle_degrees,
+    cone_center_mode=cone_center_mode,
+    cone_center_x=cone_center_x,
+    cone_center_y=cone_center_y,
 )

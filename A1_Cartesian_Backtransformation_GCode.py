@@ -5,8 +5,8 @@ import time
 import zipfile
 import io
 
-FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
-#FIXED_HEADER_PATH = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\A1_SLOW_HEADERBLOCKSTART.txt"
+FIXED_HEADER_PATH = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\A1_HEADERBLOCKSTART.txt"
+#FIXED_HEADER_PATH = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\A1_SLOW_HEADERBLOCKSTART.txt"
 
 NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 
@@ -421,7 +421,7 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"{name}_bt_{cone_type}_{cone_angle_deg}deg.gcode"
+    file_name = f"Conical_{name}_bt_{cone_type}_{cone_angle_deg}deg.gcode"
     output_path = os.path.join(output_dir, file_name)
 
     with open(output_path, 'w+', encoding='utf-8', newline='\n') as f_out:
@@ -435,12 +435,12 @@ def backtransform_file(path, output_dir, cone_type, cone_angle_deg, maximal_leng
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\smug_goat_outward_7.5deg_transformed_PLA_1h52m.gcode"
-dir_backtransformed = r"C:\Users\canca\OneDrive\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Conical_Flat Dogbone centered x175_10deg_transformed_PLA_30m36s.gcode"
+dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  7.5         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  10         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
