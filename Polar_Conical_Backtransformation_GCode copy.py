@@ -215,6 +215,7 @@ def cartesian_to_cxzb(
     theta_accum,
     c_sign=1.0,
     b_sign=-1.0,
+    machine_side_sign=1.0,
 ):
     """
     Convert backtransformed Cartesian XYZ into machine-native CXZB coordinates.
@@ -246,9 +247,9 @@ def cartesian_to_cxzb(
     z_comp = z_cart + (np.cos(head_tilt_rad) - 1.0) * nozzle_offset
 
     c_axis = c_sign * np.rad2deg(theta_accum)
-    x_axis = radius_comp
+    x_axis = machine_side_sign * radius_comp
     z_axis = z_comp
-    b_axis = b_sign * np.rad2deg(head_tilt_rad)
+    b_axis = machine_side_sign * b_sign * np.rad2deg(head_tilt_rad)
 
     return c_axis, x_axis, z_axis, b_axis, theta, theta_accum
 
@@ -750,6 +751,7 @@ def backtransform_data(
     use_fixed_e=False,
     c_sign=1.0,
     b_sign=-1.0,
+    machine_side_sign=1.0,
     safety_limits=None,
     machine_z_lift=0.0,
     use_conical_z_backtransform=True,
@@ -914,6 +916,7 @@ def backtransform_data(
                 theta_accum=theta_accum,
                 c_sign=c_sign,
                 b_sign=b_sign,
+                machine_side_sign=machine_side_sign,
             )
 
             check_safety_limits(
@@ -2399,6 +2402,7 @@ def backtransform_file(
     use_fixed_e=False,
     c_sign=1.0,
     b_sign=-1.0,
+    machine_side_sign=1.0,
     safety_limits=None,
     machine_z_lift=0.0,
     use_conical_z_backtransform=False,
@@ -2437,7 +2441,7 @@ def backtransform_file(
     # fixed_header = read_fixed_header(fixed_header_path)
 
     c = 1 if cone_type == "outward" else -1
-    initial_b_angle = b_sign * c * cone_angle_deg
+    initial_b_angle = machine_side_sign * b_sign * c * cone_angle_deg
 
     fixed_header = make_simple_start_gcode(
         nozzle_temp=210,
@@ -2488,6 +2492,7 @@ def backtransform_file(
         use_fixed_e=use_fixed_e,
         c_sign=c_sign,
         b_sign=b_sign,
+        machine_side_sign=machine_side_sign,
         safety_limits=safety_limits,
         machine_z_lift=machine_z_lift,
         use_conical_z_backtransform=use_conical_z_backtransform,
@@ -2621,7 +2626,7 @@ def backtransform_file(
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"{name}_bt_final.gcode"
+    file_name = f"Mirrored_{name}_bt_final.gcode"
     output_path = os.path.join(output_dir, file_name)
 
     with open(output_path, 'w+', encoding='utf-8', newline='\n') as f_out:
@@ -2659,6 +2664,7 @@ use_fixed_extrusion = False  # False = preserve slicer E values, True = force fi
 nozzle_offset = 41.5  # mm, replace with real value
 b_sign = -1.0         # flip to +1 if B tilts wrong way
 c_sign = 1.0          # flip to -1 if bed rotates opposite direction
+machine_side_sign = -1.0  # +1 = current positive-X side, -1 = opposite negative-X side
 
 # min_radius = 0.0
 # max_radius = 150.0    # replace with your machine limit
@@ -2730,6 +2736,7 @@ backtransform_file(
     use_fixed_e       = use_fixed_extrusion,
     c_sign            = c_sign,
     b_sign            = b_sign,
+    machine_side_sign = machine_side_sign,
     safety_limits     = safety_limits,
     machine_z_lift    = machine_z_lift,
     use_conical_z_backtransform = use_conical_z_backtransform,
