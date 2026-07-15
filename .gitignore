@@ -98,3 +98,6 @@ TransformedFiles/*
 # Backup files
 *.bak
 *.tmp
+
+# Txt file
+extrusion_diagnostics.txt
