@@ -1076,10 +1076,11 @@ def backtransform_data(
 
                     with open("extrusion_diagnostics.txt", "a", encoding="utf-8") as diagnostic_file:
                         diagnostic_file.write(
-                            f"radius={radius:.3f}, "
-                            f"move_e_per_mm={e_per_mm:.6f}, "
-                            f"segment_e_per_mm={segment_e_per_mm:.6f}, "
-                            f"path_ratio={extrusion_length_ratio:.4f}\n"
+                            f"x={x_cart:.5f},"
+                            f"y={y_cart:.5f},"
+                            f"z={z_cart:.5f},"
+                            f"radius={radius:.5f},"
+                            f"e_per_mm={e_per_mm:.8f}\n"
                         )
                 else:
                     # Preserve negative E retractions without splitting.
@@ -2769,7 +2770,7 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_d20_medium_60deg_transformed_PLA_55m22s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_cube_60deg_transformed_PLA_40m7s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
