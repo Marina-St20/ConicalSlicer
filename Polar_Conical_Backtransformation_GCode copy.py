@@ -8,6 +8,8 @@ import io
 FIXED_HEADER_PATH = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\POLAR_HEADERBLOCKSTART.txt"
 #FIXED_HEADER_PATH = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\A1_SLOW_HEADERBLOCKSTART.txt"
 
+REMOVE_RETRACTIONS = True
+
 NUM = r'[+-]?(?:\d+(?:\.\d*)?|\.\d+)'
 
 def read_gcode_from_file(path):
@@ -786,10 +788,10 @@ def backtransform_data(
 
     head_tilt_rad = c * cone_angle_rad
 
-    with open("extrusion_diagnostics.txt", "w", encoding="utf-8") as diagnostic_file:
-                        diagnostic_file.write(
-                            "radius,move_e_per_mm,segment_e_per_mm,path_ratio\n"
-                        )
+    # with open("extrusion_diagnostics.txt", "w", encoding="utf-8") as diagnostic_file:
+    #                     diagnostic_file.write(
+    #                         "radius,move_e_per_mm,segment_e_per_mm,path_ratio\n"
+    #                     )
 
     # pattern_X = r'X[-0-9]+[.]?[0-9]*'
     # pattern_Y = r'Y[-0-9]+[.]?[0-9]*'
@@ -1074,14 +1076,14 @@ def backtransform_data(
                         else 0.0
                     )
 
-                    with open("extrusion_diagnostics.txt", "a", encoding="utf-8") as diagnostic_file:
-                        diagnostic_file.write(
-                            f"x={x_cart:.5f},"
-                            f"y={y_cart:.5f},"
-                            f"z={z_cart:.5f},"
-                            f"radius={radius:.5f},"
-                            f"e_per_mm={e_per_mm:.8f}\n"
-                        )
+                    # with open("extrusion_diagnostics.txt", "a", encoding="utf-8") as diagnostic_file:
+                    #     diagnostic_file.write(
+                    #         f"x={x_cart:.5f},"
+                    #         f"y={y_cart:.5f},"
+                    #         f"z={z_cart:.5f},"
+                    #         f"radius={radius:.5f},"
+                    #         f"e_per_mm={e_per_mm:.8f}\n"
+                    #     )
                 else:
                     # Preserve negative E retractions without splitting.
                     e_out = e_original
@@ -1745,6 +1747,7 @@ def tune_relative_extrusion_values(
     retraction_scale=0.50,
     prime_scale=None,
     print_extrusion_multiplier=1.00,
+    remove_retractions=False,
 ):
     """
     Tune relative E values after CXZB conversion.
@@ -1803,12 +1806,24 @@ def tune_relative_extrusion_values(
         has_machine_motion = has_c or has_x or has_z or has_b
 
         if e_val < 0:
+            if remove_retractions:
+                # Remove the E value but preserve any accompanying travel motion.
+                row = re.sub(pattern_E, "", row, count=1)
+                tuned_lines.append(row)
+                negative_count += 1
+                continue
+
             new_e = e_val * retraction_scale
             negative_count += 1
             negative_before += e_val
             negative_after += new_e
 
         elif e_val > 0 and not has_machine_motion:
+            if remove_retractions:
+                # Remove matching E-only unretract/prime commands completely.
+                positive_e_only_count += 1
+                continue
+
             new_e = e_val * prime_scale
             positive_e_only_count += 1
             positive_e_only_before += e_val
@@ -2652,6 +2667,7 @@ def backtransform_file(
         retraction_scale=1.00, #Retraction cut in half
         prime_scale=1.00, #Prime cut in half
         print_extrusion_multiplier=1.00, #Normal print extrusion unchanged
+        remove_retractions=REMOVE_RETRACTIONS,
     )
 
     print("Removing generated 4-axis travel moves after last print extrusion...")
@@ -2666,7 +2682,7 @@ def backtransform_file(
 
         nozzle_z_comp_offset = (np.cos(head_tilt_rad) - 1.0) * nozzle_offset
 
-        extra_z_offset = 0.2
+        extra_z_offset = 0
 
         compensated_first_layer_machine_z = z_desired + nozzle_z_comp_offset + extra_z_offset
 
@@ -2770,12 +2786,12 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_cube_60deg_transformed_PLA_40m7s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_d20_medium_30deg_transformed_PLA_32m29s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  60         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  30         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 
