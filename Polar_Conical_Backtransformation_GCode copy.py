@@ -786,6 +786,11 @@ def backtransform_data(
 
     head_tilt_rad = c * cone_angle_rad
 
+    with open("extrusion_diagnostics.txt", "w", encoding="utf-8") as diagnostic_file:
+                        diagnostic_file.write(
+                            "radius,move_e_per_mm,segment_e_per_mm,path_ratio\n"
+                        )
+
     # pattern_X = r'X[-0-9]+[.]?[0-9]*'
     # pattern_Y = r'Y[-0-9]+[.]?[0-9]*'
     # pattern_Z = r'Z[-0-9]+[.]?[0-9]*'
@@ -947,16 +952,16 @@ def backtransform_data(
 
         command = g_match.group(0).strip()
 
-        if e_original is not None and e_original > 0:
-            if extrusion_length_ratio < 0.90 or extrusion_length_ratio > 1.10:
-                print(
-                    "  Large extrusion correction: "
-                    f"ratio={extrusion_length_ratio:.4f}, "
-                    f"slicer length={slicer_path_length:.4f}, "
-                    f"final length={final_path_length:.4f}, "
-                    f"old E={e_original:.5f}, "
-                    f"new E={corrected_total_e:.5f}"
-                )
+        # if e_original is not None and e_original > 0:
+        #     if extrusion_length_ratio < 0.90 or extrusion_length_ratio > 1.10:
+                # print(
+                #     "  Large extrusion correction: "
+                #     f"ratio={extrusion_length_ratio:.4f}, "
+                #     f"slicer length={slicer_path_length:.4f}, "
+                #     f"final length={final_path_length:.4f}, "
+                #     f"old E={e_original:.5f}, "
+                #     f"new E={corrected_total_e:.5f}"
+                # )
 
         for j in range(num_segm):
             x_cart = x_vals[j + 1]
@@ -1051,6 +1056,31 @@ def backtransform_data(
 
                     e_out = corrected_total_e * segment_fraction
 
+                    # Diagnostic values for this generated segment
+                    radius = np.sqrt(
+                        (x_cart - bed_center_x) ** 2
+                        + (y_cart - bed_center_y) ** 2
+                    )
+
+                    e_per_mm = (
+                        corrected_total_e / final_path_length
+                        if final_path_length > min_extrusion_path_length
+                        else 0.0
+                    )
+
+                    segment_e_per_mm = (
+                        e_out / final_segment_lengths[j]
+                        if final_segment_lengths[j] > min_extrusion_path_length
+                        else 0.0
+                    )
+
+                    with open("extrusion_diagnostics.txt", "a", encoding="utf-8") as diagnostic_file:
+                        diagnostic_file.write(
+                            f"radius={radius:.3f}, "
+                            f"move_e_per_mm={e_per_mm:.6f}, "
+                            f"segment_e_per_mm={segment_e_per_mm:.6f}, "
+                            f"path_ratio={extrusion_length_ratio:.4f}\n"
+                        )
                 else:
                     # Preserve negative E retractions without splitting.
                     e_out = e_original
@@ -2050,8 +2080,8 @@ def print_tip_xy_size_table_by_z(
         s["y_tip_vals"].append(y_tip)
         s["r_tip_vals"].append(r_tip)
 
-    print(f"Tip XY size table: {label}")
-    print("Z_HEIGHT, X_range, Y_range, R_max")
+    # print(f"Tip XY size table: {label}")
+    # print("Z_HEIGHT, X_range, Y_range, R_max")
 
     for layer in sorted(layer_stats.keys()):
         s = layer_stats[layer]
@@ -2059,12 +2089,12 @@ def print_tip_xy_size_table_by_z(
         ys = s["y_tip_vals"]
         rs = s["r_tip_vals"]
 
-        print(
-            f"{s['z_height']:.3f}, "
-            f"{max(xs)-min(xs):.5f}, "
-            f"{max(ys)-min(ys):.5f}, "
-            f"{max(rs):.5f}"
-        )
+        # print(
+        #     f"{s['z_height']:.3f}, "
+        #     f"{max(xs)-min(xs):.5f}, "
+        #     f"{max(ys)-min(ys):.5f}, "
+        #     f"{max(rs):.5f}"
+        # )
 
 def print_final_layer_footprint_summary_by_z(
     data_bt_string,
@@ -2146,7 +2176,7 @@ def print_final_layer_footprint_summary_by_z(
         s["e_total"] += e_val
         s["count"] += 1
 
-    print("Final CXZB layer footprint summary by slicer Z_HEIGHT:")
+    #print("Final CXZB layer footprint summary by slicer Z_HEIGHT:")
 
     if not layer_stats:
         print("  No positive-extrusion layers found in requested Z range.")
@@ -2391,8 +2421,8 @@ def print_tip_shape_profile_by_z(
         max_xy_seen = max(max_xy_seen, x_range, y_range)
         max_r_seen = max(max_r_seen, r_max)
 
-    print(f"Tip shape profile: {label}")
-    print("Z_HEIGHT, X_range, Y_range, R_max, XY_center_x, XY_center_y, size_frac, R_frac, E_total, moves")
+    # print(f"Tip shape profile: {label}")
+    # print("Z_HEIGHT, X_range, Y_range, R_max, XY_center_x, XY_center_y, size_frac, R_frac, E_total, moves")
 
     for layer in sorted(layer_stats.keys()):
         s = layer_stats[layer]
@@ -2657,35 +2687,35 @@ def backtransform_file(
             desired_first_print_z=z_desired,
         )
     
-    print_final_layer_footprint_summary_by_z(
-            data_bt_string,
-            z_min_filter=3.0,
-            z_max_filter=8.0,
-        )
+    # print_final_layer_footprint_summary_by_z(
+    #         data_bt_string,
+    #         z_min_filter=3.0,
+    #         z_max_filter=8.0,
+    #     )
 
-    print_reconstructed_tip_footprint_by_z(
-        data_bt_string,
-        nozzle_offset=nozzle_offset,
-        z_min_filter=3.0,
-        z_max_filter=8.0,
-    )
+    # print_reconstructed_tip_footprint_by_z(
+    #     data_bt_string,
+    #     nozzle_offset=nozzle_offset,
+    #     z_min_filter=3.0,
+    #     z_max_filter=8.0,
+    # )
 
-    print_tip_xy_size_table_by_z(
-        data_bt_string,
-        nozzle_offset=nozzle_offset,
-        label="0deg",
-        z_min_filter=0.0,
-        z_max_filter=15.0,
-    )
+    # print_tip_xy_size_table_by_z(
+    #     data_bt_string,
+    #     nozzle_offset=nozzle_offset,
+    #     label="0deg",
+    #     z_min_filter=0.0,
+    #     z_max_filter=15.0,
+    # )
 
-    print("HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
-    print_tip_shape_profile_by_z(
-        data_bt_string,
-        nozzle_offset=nozzle_offset,
-        label="0deg middle-top",
-        z_min_filter=6.0,
-        z_max_filter=26.0,
-    )
+    # print("HEREEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
+    # print_tip_shape_profile_by_z(
+    #     data_bt_string,
+    #     nozzle_offset=nozzle_offset,
+    #     label="0deg middle-top",
+    #     z_min_filter=6.0,
+    #     z_max_filter=26.0,
+    # )
 
     print_global_tip_size_summary(
         data_bt_string,
@@ -2739,12 +2769,12 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_d20_medium_30deg_transformed_PLA_32m29s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_d20_medium_60deg_transformed_PLA_55m22s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
 transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  30         # must match Cartesian_Transformation_STL.py exactly
+cone_angle_degrees  =  60         # must match Cartesian_Transformation_STL.py exactly
 
 max_length = 2.0   # max segment length in mm (smaller = smoother curves)
 

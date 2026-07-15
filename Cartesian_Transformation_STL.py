@@ -240,7 +240,7 @@ file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\d20_med
 dir_transformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
 number_iterations = 0                # mesh refinement iterations
-cone_angle_degrees = 30   
+cone_angle_degrees = 60   
 
 transformation_STL_file(
     path=file_path,
