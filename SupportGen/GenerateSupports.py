@@ -42,16 +42,30 @@ def create_triangular_support(mesh, face_index, bottom_z, radius):
             support_end_z = max(bottom_z, locations[mask][nearest, 2] + .1)
 
     support_height = origin[2] - support_end_z
-    if support_height <= 1:
+    if support_height <= 15:
         return None
 
     support = trimesh.creation.cylinder(radius=radius, height=support_height, sections=16)
+    vertices = support.vertices.copy()
+    
+    # 3. Find the top vertices. 
+    # Since the cylinder is centered at Z=0, the top vertices are at Z = height / 2
+    z_top = support_height / 2.0
+    is_top = np.isclose(vertices[:, 2], z_top)
+    
+    # 4. Scale the X and Y coordinates of the top vertices to match radius_top
+    scale_factor = .5 / 2.5
+    vertices[is_top, 0] *= scale_factor  # Scale X
+    vertices[is_top, 1] *= scale_factor  # Scale Y
+    
+    # 5. Assign modified vertices back to the mesh
+    support.vertices = vertices
     support.visual.face_colors = [180, 120, 40, 255]
 
     transform = np.eye(4)
     transform[0, 3] = centroid[0]
     transform[1, 3] = centroid[1]
-    transform[2, 3] = support_end_z + support_height / 2.0
+    transform[2, 3] = support_end_z + support_height / 2
     transform = check_wall(mesh, face_index, transform, radius=radius, offset=-.2)
     support.apply_transform(transform)
 
@@ -128,7 +142,7 @@ def main():
     parser = argparse.ArgumentParser(description='Generate triangular support pillars from support face indices.')
     parser.add_argument('mesh_path', help='Path to the mesh file to load.')
     parser.add_argument('--threshold', type=float, default=None, help='Optional threshold multiplier passed to FindSupportFaces.py.')
-    parser.add_argument('--max_count', type=int, default=None, help='Optional maximum number of support faces to find passed to FindSupportFaces.py.')
+    parser.add_argument('--max_count', type=int, default=10, help='Optional maximum number of support faces to find passed to FindSupportFaces.py.')
     parser.add_argument('--center', type=str, default=None, help='Optional center point as "x,y,z" passed to FindSupportFaces.py.')
     parser.add_argument('--radius', type=float, default=None, help='Optional fixed support radius for the generated pillars.')
     parser.add_argument('--offset', type=float, default=.2, help='Offset between supports and original mesh.')
@@ -147,7 +161,7 @@ def main():
 
     supports = build_supports(mesh, support_faces, radius=args.radius)
     end = trimesh.util.time.time()
-    print(f'Time taken to find support faces: {end - start:.2f} seconds')
+    print(f'Time to generate: {end - start:.2f} seconds')
 
     show_mesh_with_supports(mesh, supports)
     trimesh.util.concatenate([mesh, supports]).export("C:/Users/monto/Downloads/support_demo.stl", "stl")

@@ -5,7 +5,7 @@ import trimesh
 import FindSupportFaces
 
 def vertical_scan():
-    mesh = FindSupportFaces.load_mesh('../Tentacle_Remesh.stl')
+    mesh = FindSupportFaces.load_mesh('../3DBenchy_Remesh.stl')
     mesh_filter = FindSupportFaces.load_mesh('../Filter_Cone_30.stl')
 
     extents = mesh.extents
@@ -19,7 +19,7 @@ def vertical_scan():
     scale[:, 3] = np.append(center-mesh_filter.center_mass,1)
     scale[:, 3] += [0,0,-mesh_filter.extents[2]*scale[2,2],0]
     mesh_filter.apply_transform(scale)
-    step = .2
+    step = .02
     step_num = np.floor(mesh.extents[2] * 2 / step).astype(int)
     manager = trimesh.collision.CollisionManager()
     manager.add_object('mesh', mesh)
@@ -27,27 +27,29 @@ def vertical_scan():
     adjacency = build_adjacency(mesh)
 
     for i in range(step_num):
-        transform = trimesh.transformations.translation_matrix([0, 0, i * step])
-        
-        is_collide, contacts = manager.in_collision_single(
-            mesh_filter, 
-            transform=transform, 
-            return_names=False, 
-            return_data=True
-        )
-        
-        if is_collide:
-            face_ids = [data._inds['mesh'] for data in contacts]
-            unique = np.unique(face_ids)
-        else:
-            unique = np.array([], dtype=int)
-        for u in unique:
-            faces = adjacency[u]
-            stable = any(face[1][0] for face in faces)
-            for face in faces:
-                face[1][0] = True
-            if not stable:
-                component_bases.append(u)
+        for j in range(2):
+            transform = trimesh.transformations.translation_matrix([0, 0, i * step])
+            
+            is_collide, contacts = manager.in_collision_single(
+                mesh_filter, 
+                transform=transform, 
+                return_names=False, 
+                return_data=True
+            )
+            
+            if is_collide:
+                face_ids = [data._inds['mesh'] for data in contacts]
+                unique = np.unique(face_ids)
+            else:
+                unique = np.array([], dtype=int)
+            for u in unique:
+                faces = adjacency[u]
+                stable = any(face[1][0] for face in faces)
+                for face in faces:
+                    if stable or j == 1:
+                        face[1][0] = True
+                if not stable and j == 1:
+                    component_bases.append(u)
 
         print(f"{i+1}: Found {len(unique)} intersecting faces.")
         
@@ -59,6 +61,12 @@ def vertical_scan():
         #     scene.add_geometry(mesh_filter)
         #     scene.show()
     origins = np.array(component_bases, int)
+    normals = mesh.face_normals[origins]
+    mask = normals[:,2] < -.5
+    origins = origins[mask]
+    pos = mesh.triangles_center[origins]
+    mask = pos[:,2] > 1
+    origins = origins[mask]
     show_regions(mesh, origins)
 
     return np.array(component_bases, int)
