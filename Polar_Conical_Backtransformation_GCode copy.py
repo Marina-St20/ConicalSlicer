@@ -749,6 +749,9 @@ def backtransform_data(
     nozzle_offset,
     fixed_e=0.0275,
     use_fixed_e=False,
+    recalculate_extrusion=True,
+    extrusion_multiplier=1.0,
+    min_extrusion_path_length=1e-9,
     c_sign=1.0,
     b_sign=-1.0,
     machine_side_sign=1.0,
@@ -894,9 +897,66 @@ def backtransform_data(
             # Keeps the slicer's layer Z flat so the first layer can actually print on the bed.
             z_vals = np.full_like(r_vals, z_layer)
 
+        # ---------------------------------------------------------
+        # Extrusion path-length correction
+        # ---------------------------------------------------------
+        # Bambu Studio calculated E for the planar sliced movement:
+        #     (x_old, y_old) -> (x_new, y_new)
+        #
+        # After backtransformation, the nozzle-tip path is:
+        #     (x_vals, y_vals, z_vals)
+        #
+        # Scale E according to the final 3D nozzle-tip path length.
+
+        slicer_path_length = np.linalg.norm([
+            x_new - x_old,
+            y_new - y_old,
+        ])
+
+        final_segment_lengths = np.sqrt(
+            np.diff(x_vals) ** 2
+            + np.diff(y_vals) ** 2
+            + np.diff(z_vals) ** 2
+        )
+
+        final_path_length = np.sum(final_segment_lengths)
+
+        extrusion_length_ratio = 1.0
+
+        if slicer_path_length > min_extrusion_path_length:
+            extrusion_length_ratio = (
+                final_path_length / slicer_path_length
+            )
+
+        corrected_total_e = None
+
+        if e_original is not None and e_original > 0:
+            if recalculate_extrusion:
+                corrected_total_e = (
+                    e_original
+                    * extrusion_length_ratio
+                    * extrusion_multiplier
+                )
+            else:
+                corrected_total_e = (
+                    e_original
+                    * extrusion_multiplier
+                )
+
         replacement_rows = ''
 
         command = g_match.group(0).strip()
+
+        if e_original is not None and e_original > 0:
+            if extrusion_length_ratio < 0.90 or extrusion_length_ratio > 1.10:
+                print(
+                    "  Large extrusion correction: "
+                    f"ratio={extrusion_length_ratio:.4f}, "
+                    f"slicer length={slicer_path_length:.4f}, "
+                    f"final length={final_path_length:.4f}, "
+                    f"old E={e_original:.5f}, "
+                    f"new E={corrected_total_e:.5f}"
+                )
 
         for j in range(num_segm):
             x_cart = x_vals[j + 1]
@@ -942,23 +1002,58 @@ def backtransform_data(
             )
 
             #Don't force fixed positive E onto retractions
+            # if e_match is not None:
+            #     if e_original is None:
+            #         e_original = float(e_match.group(0).replace('E', ''))
+
+            #     if use_fixed_e:
+            #         if e_original > 0:
+            #             e_out = fixed_e
+            #         else:
+            #             # Preserve retract / unretract / pressure moves.
+            #             e_out = e_original
+            #     else:
+            #         if e_original > 0:
+            #             # Split only real positive extrusion across generated segments.
+            #             e_out = e_original / num_segm
+            #         else:
+            #             # Do not split retraction/negative E.
+            #             e_out = e_original
+
+            #     new_line += f" E{e_out:.5f}"
+
             if e_match is not None:
                 if e_original is None:
-                    e_original = float(e_match.group(0).replace('E', ''))
+                    e_original = float(
+                        e_match.group(0).replace("E", "")
+                    )
 
                 if use_fixed_e:
                     if e_original > 0:
                         e_out = fixed_e
                     else:
-                        # Preserve retract / unretract / pressure moves.
+                        # Keep retractions and E-only pressure moves unchanged.
                         e_out = e_original
-                else:
-                    if e_original > 0:
-                        # Split only real positive extrusion across generated segments.
-                        e_out = e_original / num_segm
+
+                elif e_original > 0:
+                    if corrected_total_e is None:
+                        corrected_total_e = e_original
+
+                    if final_path_length > min_extrusion_path_length:
+                        # Give each generated segment E proportional to
+                        # its actual 3D nozzle-tip path length.
+                        segment_fraction = (
+                            final_segment_lengths[j]
+                            / final_path_length
+                        )
                     else:
-                        # Do not split retraction/negative E.
-                        e_out = e_original
+                        segment_fraction = 1.0 / num_segm
+
+                    e_out = corrected_total_e * segment_fraction
+
+                else:
+                    # Preserve negative E retractions without splitting.
+                    e_out = e_original
 
                 new_line += f" E{e_out:.5f}"
 
@@ -2400,6 +2495,8 @@ def backtransform_file(
     nozzle_offset=0.0,
     fixed_e=0.0275,
     use_fixed_e=False,
+    recalculate_extrusion=True,
+    extrusion_multiplier=1.0,
     c_sign=1.0,
     b_sign=-1.0,
     machine_side_sign=1.0,
@@ -2490,6 +2587,8 @@ def backtransform_file(
         nozzle_offset=nozzle_offset,
         fixed_e=fixed_e,
         use_fixed_e=use_fixed_e,
+        recalculate_extrusion=recalculate_extrusion,
+        extrusion_multiplier=extrusion_multiplier,
         c_sign=c_sign,
         b_sign=b_sign,
         machine_side_sign=machine_side_sign,
@@ -2640,7 +2739,7 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\Safe_Polar_d20_medium_30deg_transformed_PLA_32m30s.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_d20_medium_30deg_transformed_PLA_32m29s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
@@ -2665,6 +2764,9 @@ nozzle_offset = 41.5  # mm, replace with real value
 b_sign = -1.0         # flip to +1 if B tilts wrong way
 c_sign = 1.0          # flip to -1 if bed rotates opposite direction
 machine_side_sign = -1.0  # +1 = current positive-X side, -1 = opposite negative-X side
+
+recalculate_extrusion = True
+extrusion_multiplier = 1.0
 
 # min_radius = 0.0
 # max_radius = 150.0    # replace with your machine limit
@@ -2740,4 +2842,6 @@ backtransform_file(
     safety_limits     = safety_limits,
     machine_z_lift    = machine_z_lift,
     use_conical_z_backtransform = use_conical_z_backtransform,
+    recalculate_extrusion = recalculate_extrusion,
+    extrusion_multiplier = extrusion_multiplier,
 )
