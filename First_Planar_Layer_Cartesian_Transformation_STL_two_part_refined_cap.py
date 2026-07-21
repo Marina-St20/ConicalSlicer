@@ -2,6 +2,7 @@ import numpy as np
 from stl import mesh
 import time
 import os
+import trimesh
 
 def print_xy_size_check(label, points):
     min_xyz = np.min(points, axis=0)
@@ -177,6 +178,177 @@ def sit_model_on_build_plate(vectors_transformed):
 
     return vectors_transformed
 
+
+def save_trimesh_as_stl(tri_mesh, output_path):
+    """Save a trimesh.Trimesh as STL after basic validation."""
+    if tri_mesh is None or tri_mesh.is_empty:
+        raise ValueError(f"Cannot save empty mesh: {output_path}")
+
+    tri_mesh.remove_unreferenced_vertices()
+    tri_mesh.process(validate=True)
+    tri_mesh.export(output_path)
+
+
+
+def refine_mesh_to_max_edge(tri_mesh, max_edge_length=0.50, max_iterations=8):
+    """
+    Subdivide a trimesh until every triangle edge is no longer than
+    max_edge_length. This is especially important for the newly capped
+    cut face, because the conical transform only moves mesh vertices.
+    """
+    if max_edge_length is None or max_edge_length <= 0:
+        return tri_mesh.copy()
+
+    vertices, faces = trimesh.remesh.subdivide_to_size(
+        vertices=np.asarray(tri_mesh.vertices),
+        faces=np.asarray(tri_mesh.faces),
+        max_edge=max_edge_length,
+        max_iter=max_iterations,
+    )
+
+    refined = trimesh.Trimesh(
+        vertices=vertices,
+        faces=faces,
+        process=False,
+    )
+    refined.merge_vertices()
+    refined.remove_unreferenced_vertices()
+    refined.fix_normals()
+    return refined
+
+def split_original_mesh_at_z(original_mesh, split_z):
+    """
+    Split a watertight model into two capped solids at original-model Z=split_z.
+
+    Returns:
+        planar_slab: geometry from Z=0 through split_z
+        upper_body:  geometry above split_z
+
+    The input mesh must already be centered in X/Y and placed with min Z=0.
+    """
+    if split_z <= 0:
+        raise ValueError("split_z must be greater than zero.")
+
+    # slice_plane keeps the positive side of the plane normal.
+    upper_body = original_mesh.slice_plane(
+        plane_origin=[0.0, 0.0, split_z],
+        plane_normal=[0.0, 0.0, 1.0],
+        cap=True,
+    )
+
+    planar_slab = original_mesh.slice_plane(
+        plane_origin=[0.0, 0.0, split_z],
+        plane_normal=[0.0, 0.0, -1.0],
+        cap=True,
+    )
+
+    if planar_slab is None or planar_slab.is_empty:
+        raise ValueError("Planar slab is empty. Increase planar_slab_height.")
+
+    if upper_body is None or upper_body.is_empty:
+        raise ValueError("Upper body is empty. Decrease planar_slab_height.")
+
+    # Put the cut face of the upper part at Z=0 before conical transformation.
+    upper_body = upper_body.copy()
+    upper_body.apply_translation([0.0, 0.0, -split_z])
+
+    return planar_slab, upper_body
+
+
+def transform_trimesh_conically(tri_mesh, cone_type, cone_angle_deg):
+    """Apply the existing conical point transform to a trimesh mesh."""
+    transformed = tri_mesh.copy()
+    transformed.vertices = transformation_cone(
+        np.asarray(transformed.vertices),
+        cone_type=cone_type,
+        cone_angle_deg=cone_angle_deg,
+    )
+
+    # Put the transformed upper STL on Bambu Studio's build plate.
+    transformed.apply_translation([0.0, 0.0, -transformed.bounds[0, 2]])
+    transformed.remove_unreferenced_vertices()
+    return transformed
+
+
+def generate_two_part_stls(
+    path,
+    output_dir,
+    cone_type,
+    cone_angle_deg,
+    planar_slab_height,
+    upper_max_edge_length=0.50,
+):
+    """
+    Generate two independently sliceable STL files:
+
+      1. PLANAR_<name>_slab_<height>mm.stl
+         Original unwarped bottom slab.
+
+      2. CONICAL_<name>_upper_<angle>deg.stl
+         Original model above the slab, moved down to Z=0 and transformed.
+    """
+    start = time.time()
+    os.makedirs(output_dir, exist_ok=True)
+
+    original = trimesh.load_mesh(path, force='mesh', process=True)
+    if original.is_empty:
+        raise ValueError("Loaded STL is empty.")
+
+    original = original.copy()
+
+    # Match center_model(): center X/Y and place original minimum Z at zero.
+    bounds = original.bounds
+    center_x = (bounds[0, 0] + bounds[1, 0]) / 2.0
+    center_y = (bounds[0, 1] + bounds[1, 1]) / 2.0
+    min_z = bounds[0, 2]
+    original.apply_translation([-center_x, -center_y, -min_z])
+
+    print("Centered original STL bounds:")
+    print(original.bounds)
+    print(f"Planar slab cutoff: Z=0 through Z={planar_slab_height:.5f} mm")
+
+    planar_slab, upper_body = split_original_mesh_at_z(
+        original,
+        split_z=planar_slab_height,
+    )
+
+    print(
+        f"Refining capped upper mesh to maximum edge length "
+        f"{upper_max_edge_length:.3f} mm before conical transformation..."
+    )
+    upper_body = refine_mesh_to_max_edge(
+        upper_body,
+        max_edge_length=upper_max_edge_length,
+    )
+
+    conical_upper = transform_trimesh_conically(
+        upper_body,
+        cone_type=cone_type,
+        cone_angle_deg=cone_angle_deg,
+    )
+
+    base = os.path.basename(path)
+    name, _ = os.path.splitext(base)
+
+    planar_path = os.path.join(
+        output_dir,
+        f"PLANAR_{name}_slab_{planar_slab_height:.3f}mm.stl",
+    )
+    upper_path = os.path.join(
+        output_dir,
+        f"CONICAL_{name}_upper_{cone_angle_deg}deg.stl",
+    )
+
+    save_trimesh_as_stl(planar_slab, planar_path)
+    save_trimesh_as_stl(conical_upper, upper_path)
+
+    print(f"Planar slab saved to:\n  {planar_path}")
+    print(f"Conical upper body saved to:\n  {upper_path}")
+    print(f"Two-part STL generation completed in {time.time() - start:.1f}s")
+
+    return planar_path, upper_path
+
+
 def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_angle_deg):
     start = time.time()
     my_mesh = mesh.Mesh.from_file(path)
@@ -235,17 +407,42 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # Parameters
 # ---------------------------------------------------------------
 
-#file_path = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\ASTM_Dogbone.stl"
 file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\Dragon.stl"
 dir_transformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
-transformation_type = 'outward'       # 'inward' or 'outward'
-number_iterations = 0                # mesh refinement iterations
-cone_angle_degrees = 30   
 
-transformation_STL_file(
-    path=file_path,
-    output_dir=dir_transformed,
-    cone_type=transformation_type,
-    nb_iterations=number_iterations,
-    cone_angle_deg=cone_angle_degrees,
-)
+transformation_type = "outward"       # "inward" or "outward"
+number_iterations = 0                  # used only in single-STL mode
+cone_angle_degrees = 30
+
+# MASTER SWITCH
+# True  -> output a planar bottom slab plus a separate conical upper STL.
+# False -> preserve the original single fully conical STL workflow.
+USE_PLANAR_FOUNDATION = True
+
+# Must match the planar first-layer height selected in Bambu Studio.
+# Example: Bambu initial layer height 0.20 mm -> use 0.20 here.
+PLANAR_SLAB_HEIGHT = 0.20
+UPPER_MAX_EDGE_LENGTH = 0.50  # mm; densifies the new capped cut face
+
+
+# ---------------------------------------------------------------
+# Run
+# ---------------------------------------------------------------
+
+if USE_PLANAR_FOUNDATION:
+    generate_two_part_stls(
+        path=file_path,
+        output_dir=dir_transformed,
+        cone_type=transformation_type,
+        cone_angle_deg=cone_angle_degrees,
+        planar_slab_height=PLANAR_SLAB_HEIGHT,
+        upper_max_edge_length=UPPER_MAX_EDGE_LENGTH,
+    )
+else:
+    transformation_STL_file(
+        path=file_path,
+        output_dir=dir_transformed,
+        cone_type=transformation_type,
+        nb_iterations=number_iterations,
+        cone_angle_deg=cone_angle_degrees,
+    )

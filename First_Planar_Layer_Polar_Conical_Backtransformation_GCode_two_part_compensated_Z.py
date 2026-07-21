@@ -2782,113 +2782,531 @@ def backtransform_file(
     print(f"Done! GCode generated in {end - start:.1f}s, saved to:\n  {output_path}")
 
 
+
+def prepare_backtransformed_body(
+    path,
+    cone_type,
+    cone_angle_deg,
+    maximal_length,
+    desired_first_print_z,
+    bed_center_x,
+    bed_center_y,
+    nozzle_offset,
+    fixed_e,
+    use_fixed_e,
+    recalculate_extrusion,
+    extrusion_multiplier,
+    c_sign,
+    b_sign,
+    machine_side_sign,
+    safety_limits,
+    machine_z_lift,
+    use_conical_z_backtransform,
+    shift_to_desired_first_z=True,
+):
+    """
+    Convert one slicer G-code file into a cleaned CXZB body only.
+
+    No start header or end footer is added here. This allows planar and
+    conical bodies to be stitched into one output file.
+    """
+    data = read_gcode_from_file(path)
+    body = strip_original_header(data)
+    body = remove_unwanted_blocks(body)
+    body = remove_preprint_motion_moves(body)
+    body = remove_everything_before_first_layer_marker(body)
+    body = remove_out_of_bounds_nonprint_moves(
+        body,
+        cartesian_min_x=0.0,
+        cartesian_max_x=256.0,
+        cartesian_min_y=0.0,
+        cartesian_max_y=256.0,
+    )
+
+    if bed_center_x is None or bed_center_y is None:
+        bed_center_x, bed_center_y = detect_bed_center(body)
+
+    data_bt = backtransform_data(
+        body,
+        cone_type,
+        cone_angle_deg,
+        maximal_length,
+        bed_center_x,
+        bed_center_y,
+        nozzle_offset=nozzle_offset,
+        fixed_e=fixed_e,
+        use_fixed_e=use_fixed_e,
+        recalculate_extrusion=recalculate_extrusion,
+        extrusion_multiplier=extrusion_multiplier,
+        c_sign=c_sign,
+        b_sign=b_sign,
+        machine_side_sign=machine_side_sign,
+        safety_limits=safety_limits,
+        machine_z_lift=machine_z_lift,
+        use_conical_z_backtransform=use_conical_z_backtransform,
+    )
+
+    body_string = ''.join(data_bt)
+    body_string = clean_final_gcode_for_4axis_first_print(
+        body_string,
+        max_feedrate_print=1200.0,
+        max_feedrate_travel=3000.0,
+        comment_removed_lines=False,
+    )
+    body_string = keep_only_simple_4axis_print_gcode(
+        body_string,
+        keep_layer_comments=True,
+    )
+    body_string = tune_relative_extrusion_values(
+        body_string,
+        retraction_scale=1.0,
+        prime_scale=1.0,
+        print_extrusion_multiplier=1.0,
+        remove_retractions=REMOVE_RETRACTIONS,
+    )
+    body_string = remove_4axis_motion_after_last_positive_extrusion(body_string)
+
+    if shift_to_desired_first_z:
+        if use_conical_z_backtransform:
+            cone_angle_rad = np.radians(cone_angle_deg)
+            c = 1 if cone_type == "outward" else -1
+            head_tilt_rad = c * cone_angle_rad
+            nozzle_z_comp_offset = (np.cos(head_tilt_rad) - 1.0) * nozzle_offset
+            target_machine_z = desired_first_print_z + nozzle_z_comp_offset
+
+            body_string = auto_shift_first_layer_extrusion_min_z(
+                body_string,
+                desired_first_layer_z=target_machine_z,
+            )
+        else:
+            body_string = auto_shift_cxzb_z_to_first_moving_extrusion(
+                body_string,
+                desired_first_print_z=desired_first_print_z,
+            )
+
+    return body_string
+
+
+
+def get_positive_extrusion_z_bounds(gcode_string):
+    """Return min/max final machine Z for positive-extrusion moves."""
+    pattern_z = rf'(^|\s)Z({NUM})'
+    pattern_e = rf'(^|\s)E({NUM})'
+    z_values = []
+
+    for row in gcode_string.splitlines():
+        if not row.startswith(("G0", "G1")):
+            continue
+
+        z_match = re.search(pattern_z, row)
+        e_match = re.search(pattern_e, row)
+        if z_match is None or e_match is None:
+            continue
+
+        if float(e_match.group(2)) <= 0.0:
+            continue
+
+        z_values.append(float(z_match.group(2)))
+
+    if not z_values:
+        raise ValueError("No positive-extrusion Z moves were found.")
+
+    return min(z_values), max(z_values)
+
+
+def shift_all_machine_z(gcode_string, z_shift):
+    """Apply one constant shift to every final machine Z coordinate."""
+    pattern_z = rf'(^|\s)Z({NUM})'
+
+    def replace_z(match):
+        return f"{match.group(1)}Z{float(match.group(2)) + z_shift:.5f}"
+
+    shifted_lines = []
+    for row in gcode_string.splitlines():
+        if row.startswith(("G0", "G1")):
+            row = re.sub(pattern_z, replace_z, row, count=1)
+        shifted_lines.append(row)
+
+    return "\n".join(shifted_lines) + "\n"
+
+def parse_full_cxzb_move(row):
+    """Return C/X/Z/B/E/F values from one full machine move, or None."""
+    if not row.startswith(("G0", "G1")):
+        return None
+
+    values = {}
+    for axis in ("C", "X", "Z", "B", "E", "F"):
+        match = re.search(rf'(^|\s){axis}({NUM})', row)
+        if match is not None:
+            values[axis] = float(match.group(2))
+
+    if not all(axis in values for axis in ("C", "X", "Z", "B")):
+        return None
+
+    values["row"] = row
+    return values
+
+
+def find_last_full_move(body_string):
+    for row in reversed(body_string.splitlines()):
+        parsed = parse_full_cxzb_move(row)
+        if parsed is not None:
+            return parsed
+    raise ValueError("No full C/X/Z/B move found in planar body.")
+
+
+def pop_first_nonextruding_full_move(body_string):
+    """
+    Find and remove the first full C/X/Z/B move with no positive extrusion.
+    It becomes the safe positioning target for the conical body.
+    """
+    lines = body_string.splitlines()
+
+    for index, row in enumerate(lines):
+        parsed = parse_full_cxzb_move(row)
+        if parsed is None:
+            continue
+
+        e_value = parsed.get("E", 0.0)
+        if e_value <= 0.0:
+            del lines[index]
+            return parsed, "\n".join(lines) + "\n"
+
+        raise ValueError(
+            "The first full move in the upper G-code is already extruding. "
+            "Add/retain an initial travel move in the Bambu upper-body slice."
+        )
+
+    raise ValueError("No nonextruding full C/X/Z/B positioning move found in upper body.")
+
+
+def make_planar_to_conical_transition(
+    planar_last_move,
+    upper_position_move,
+    transition_lift_mm,
+    transition_feedrate,
+):
+    """Create lift -> tilt -> reposition -> descend transition G-code."""
+    safe_z = max(planar_last_move["Z"], upper_position_move["Z"]) + transition_lift_mm
+
+    return (
+        "; PLANAR_TO_CONICAL_TRANSITION_START\n"
+        f"G1 C{planar_last_move['C']:.5f} "
+        f"X{planar_last_move['X']:.5f} "
+        f"Z{safe_z:.5f} "
+        f"B{planar_last_move['B']:.5f} "
+        f"F{transition_feedrate:.1f}\n"
+        f"G1 C{planar_last_move['C']:.5f} "
+        f"X{planar_last_move['X']:.5f} "
+        f"Z{safe_z:.5f} "
+        f"B{upper_position_move['B']:.5f} "
+        f"F{transition_feedrate:.1f}\n"
+        f"G1 C{upper_position_move['C']:.5f} "
+        f"X{upper_position_move['X']:.5f} "
+        f"Z{safe_z:.5f} "
+        f"B{upper_position_move['B']:.5f} "
+        f"F{transition_feedrate:.1f}\n"
+        f"G1 C{upper_position_move['C']:.5f} "
+        f"X{upper_position_move['X']:.5f} "
+        f"Z{upper_position_move['Z']:.5f} "
+        f"B{upper_position_move['B']:.5f} "
+        f"F{transition_feedrate:.1f}\n"
+        "; PLANAR_TO_CONICAL_TRANSITION_END\n"
+    )
+
+
+def backtransform_and_stitch_two_gcodes(
+    planar_gcode_path,
+    upper_gcode_path,
+    output_dir,
+    cone_type,
+    cone_angle_deg,
+    maximal_length,
+    planar_first_layer_height,
+    interface_gap,
+    transition_lift_mm,
+    transition_feedrate,
+    bed_center_x,
+    bed_center_y,
+    nozzle_offset,
+    fixed_e,
+    use_fixed_e,
+    recalculate_extrusion,
+    extrusion_multiplier,
+    c_sign,
+    b_sign,
+    machine_side_sign,
+    safety_limits,
+    machine_z_lift,
+):
+    """Backtransform planar and upper G-codes separately, then stitch them."""
+    start = time.time()
+
+    print("Preparing planar slab G-code with B=0 and flat Z...")
+    planar_body = prepare_backtransformed_body(
+        path=planar_gcode_path,
+        cone_type=cone_type,
+        cone_angle_deg=0.0,
+        maximal_length=maximal_length,
+        desired_first_print_z=planar_first_layer_height,
+        bed_center_x=bed_center_x,
+        bed_center_y=bed_center_y,
+        nozzle_offset=0.0,
+        fixed_e=fixed_e,
+        use_fixed_e=use_fixed_e,
+        recalculate_extrusion=recalculate_extrusion,
+        extrusion_multiplier=extrusion_multiplier,
+        c_sign=c_sign,
+        b_sign=b_sign,
+        machine_side_sign=machine_side_sign,
+        safety_limits=safety_limits,
+        machine_z_lift=machine_z_lift,
+        use_conical_z_backtransform=False,
+        shift_to_desired_first_z=True,
+    )
+
+    print("Preparing conical upper-body G-code without pre-shifting Z...")
+    upper_body = prepare_backtransformed_body(
+        path=upper_gcode_path,
+        cone_type=cone_type,
+        cone_angle_deg=cone_angle_deg,
+        maximal_length=maximal_length,
+        desired_first_print_z=0.0,
+        bed_center_x=bed_center_x,
+        bed_center_y=bed_center_y,
+        nozzle_offset=nozzle_offset,
+        fixed_e=fixed_e,
+        use_fixed_e=use_fixed_e,
+        recalculate_extrusion=recalculate_extrusion,
+        extrusion_multiplier=extrusion_multiplier,
+        c_sign=c_sign,
+        b_sign=b_sign,
+        machine_side_sign=machine_side_sign,
+        safety_limits=safety_limits,
+        machine_z_lift=machine_z_lift,
+        use_conical_z_backtransform=True,
+        shift_to_desired_first_z=False,
+    )
+
+    # Align the PHYSICAL NOZZLE TIP interface, not raw machine Z.
+    #
+    # cartesian_to_cxzb() outputs:
+    #     machine_z = nozzle_tip_z + nozzle_z_comp_offset
+    #
+    # For a tilted nozzle, nozzle_z_comp_offset is negative:
+    #     (cos(B) - 1) * nozzle_offset
+    #
+    # Therefore the upper target MACHINE Z must include that negative offset.
+    # Aligning raw upper machine Z directly to planar Z would lift the physical
+    # upper toolpath by the full compensation distance and create a large gap.
+    planar_min_z, planar_max_z = get_positive_extrusion_z_bounds(planar_body)
+    upper_min_z_before, upper_max_z_before = get_positive_extrusion_z_bounds(upper_body)
+
+    cone_angle_rad = np.radians(cone_angle_deg)
+    cone_direction = 1 if cone_type == "outward" else -1
+    upper_head_tilt_rad = cone_direction * cone_angle_rad
+
+    nozzle_z_comp_offset = (
+        np.cos(upper_head_tilt_rad) - 1.0
+    ) * nozzle_offset
+
+    planar_top_tip_z = planar_max_z
+    upper_target_tip_z = planar_top_tip_z + interface_gap
+    upper_target_machine_z = upper_target_tip_z + nozzle_z_comp_offset
+
+    upper_z_shift = upper_target_machine_z - upper_min_z_before
+
+    print("Two-part nozzle-tip Z alignment:")
+    print(f"  Planar extrusion min machine Z:   {planar_min_z:.5f}")
+    print(f"  Planar top nozzle-tip Z:          {planar_top_tip_z:.5f}")
+    print(f"  Upper min machine Z before:       {upper_min_z_before:.5f}")
+    print(f"  Upper max machine Z before:       {upper_max_z_before:.5f}")
+    print(f"  Nozzle Z compensation offset:     {nozzle_z_comp_offset:.5f}")
+    print(f"  Requested physical interface gap: {interface_gap:.5f}")
+    print(f"  Target upper nozzle-tip Z:        {upper_target_tip_z:.5f}")
+    print(f"  Target upper machine Z:           {upper_target_machine_z:.5f}")
+    print(f"  Applying upper machine-Z shift:   {upper_z_shift:.5f}")
+
+    upper_body = shift_all_machine_z(
+        upper_body,
+        z_shift=upper_z_shift,
+    )
+
+    upper_min_z_after, upper_max_z_after = get_positive_extrusion_z_bounds(upper_body)
+
+    upper_min_tip_z_after = (
+        upper_min_z_after - nozzle_z_comp_offset
+    )
+    actual_tip_interface_gap = (
+        upper_min_tip_z_after - planar_top_tip_z
+    )
+
+    print(f"  Upper min machine Z after:        {upper_min_z_after:.5f}")
+    print(f"  Upper max machine Z after:        {upper_max_z_after:.5f}")
+    print(f"  Upper min nozzle-tip Z after:     {upper_min_tip_z_after:.5f}")
+    print(f"  Actual physical interface gap:    {actual_tip_interface_gap:.5f}")
+
+    planar_last = find_last_full_move(planar_body)
+    upper_position, upper_body = pop_first_nonextruding_full_move(upper_body)
+
+    transition = make_planar_to_conical_transition(
+        planar_last_move=planar_last,
+        upper_position_move=upper_position,
+        transition_lift_mm=transition_lift_mm,
+        transition_feedrate=transition_feedrate,
+    )
+
+    header = make_simple_start_gcode(
+        nozzle_temp=210,
+        bed_temp=60,
+        initial_b_angle=0.0,
+    )
+    footer = make_simple_end_gcode(end_z_lift=10.0)
+
+    final_output = header + planar_body + transition + upper_body + footer
+
+    validate_final_cxzb_gcode(final_output, safety_limits)
+
+    os.makedirs(output_dir, exist_ok=True)
+    planar_name = os.path.splitext(os.path.basename(planar_gcode_path))[0]
+    upper_name = os.path.splitext(os.path.basename(upper_gcode_path))[0]
+    output_path = os.path.join(
+        output_dir,
+        f"STITCHED_{planar_name}__{upper_name}.gcode",
+    )
+
+    with open(output_path, "w", encoding="utf-8", newline="\n") as output_file:
+        output_file.write(final_output)
+
+    print(f"Stitched G-code generated in {time.time() - start:.1f}s")
+    print(f"Saved to:\n  {output_path}")
+    return output_path
+
+
 # ---------------------------------------------------------------
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_Dragon_30deg_transformed_PLA_50m1s.gcode"
+# MASTER SWITCH
+# True  -> read two separately sliced G-code files and stitch them.
+# False -> use the original one-G-code backtransform workflow.
+USE_PLANAR_FOUNDATION = True
+
+# Used only when USE_PLANAR_FOUNDATION is True.
+planar_gcode_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\PLANAR_Dragon_slab_0.200mm_PLA_7m0s.gcode"
+upper_gcode_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\CONICAL_Dragon_upper_30deg_PLA_2h4m.gcode"
+
+# Used only when USE_PLANAR_FOUNDATION is False.
+file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\FULL_CONICAL_MODEL.gcode"
+
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
-fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
+fixed_header_path = FIXED_HEADER_PATH
 
-transformation_type = 'outward'   # must match Cartesian_Transformation_STL.py
-cone_angle_degrees  =  30         # must match Cartesian_Transformation_STL.py exactly
+transformation_type = "outward"
+cone_angle_degrees = 30
+max_length = 2.0
 
-max_length = 2.0   # max segment length in mm (smaller = smoother curves)
-
-# Bambu A1 bed center. Set to None to auto-detect from G-code bounding box.
 override_bed_center_x = 128.0
 override_bed_center_y = 128.0
 
-delta_x  = 0.0   # XY shift after backtransform (leave 0 for Bambu)
-delta_y  = 0.0
-z_height = 0.2   # desired minimum Z = first layer height
-machine_z_lift = 0.0   # lift compensated CXZB Z so it stays above min_z
+delta_x = 0.0
+delta_y = 0.0
 
-fixed_extrusion = 0.0275  # constant E value applied to every extrusion move
-use_fixed_extrusion = False  # False = preserve slicer E values, True = force fixed E
+# These must match Bambu Studio:
+# PLANAR_FIRST_LAYER_HEIGHT must also match PLANAR_SLAB_HEIGHT in the STL script.
+PLANAR_FIRST_LAYER_HEIGHT = 0.20
+INTERFACE_GAP = 0.00
 
-nozzle_offset = 41.5  # mm, replace with real value
-b_sign = -1.0         # flip to +1 if B tilts wrong way
-c_sign = 1.0          # flip to -1 if bed rotates opposite direction
-machine_side_sign = -1.0  # +1 = current positive-X side, -1 = opposite negative-X side
+TRANSITION_LIFT_MM = 10.0
+TRANSITION_FEEDRATE = 600.0
+
+# Original single-file mode first-layer target.
+z_height = 0.20
+machine_z_lift = 0.0
+
+fixed_extrusion = 0.0275
+use_fixed_extrusion = False
+
+nozzle_offset = 41.5
+b_sign = -1.0
+c_sign = 1.0
+machine_side_sign = -1.0
 
 recalculate_extrusion = True
 extrusion_multiplier = 1.0
 
-# min_radius = 0.0
-# max_radius = 150.0    # replace with your machine limit
-# min_z = 0.0
-# max_z = 250.0         # replace with your machine limit
-# min_b = -45.0
-# max_b = 45.0
-
-# ---------------------------------------------------------------
-# Safety limits / shadow box
-# ---------------------------------------------------------------
-
 safety_limits = make_safety_limits()
-
-# Real known 4-axis printer limits:
 safety_limits["min_x"] = -150.0
 safety_limits["max_x"] = 150.0
-
-# Machine Z can be negative because B-axis/nozzle-angle compensation
-# can place the pivot/axis below Z0 while the nozzle tip is still correct.
-# During conical debugging, do not enforce a lower machine-Z clamp.
 safety_limits["min_z"] = None
 safety_limits["max_z"] = 280.0
-
 safety_limits["min_b"] = -120.0
 safety_limits["max_b"] = 120.0
-
-# C is continuous / unlimited.
 safety_limits["min_c"] = None
 safety_limits["max_c"] = None
-
-# Optional extra safety margin.
-# Keep 0.0 while debugging. Later, use something like 1.0 or 2.0 mm.
 safety_limits["safety_margin_mm"] = 0.0
-
 safety_limits["limit_tolerance_mm"] = 0.25
 safety_limits["limit_tolerance_deg"] = 0.001
-
-# Shadow box is OFF until you measure the head/nozzle assembly.
 safety_limits["enable_shadow_box_check"] = False
-
-use_conical_z_backtransform = True  # False = flat-bed first hardware print test #should be True for real conical backtransform
-
-# TODO REPLACE LATER: (WILL NEED FOR WHEN WE CHANGE NOZZLE ANGLE)
-# Fill these in when you know the real print head and bed geometry.
 safety_limits["bed_radius_mm"] = 150.0
 safety_limits["head_shadow_radius_mm"] = 0.0
 safety_limits["head_shadow_z_below_nozzle_mm"] = 0.0
 safety_limits["head_shadow_z_above_nozzle_mm"] = 0.0
 
+use_conical_z_backtransform = True
+
+
 # ---------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------
 
-backtransform_file(
-    path              = file_path,
-    output_dir        = dir_backtransformed,
-    cone_type         = transformation_type,
-    cone_angle_deg    = cone_angle_degrees,
-    maximal_length    = max_length,
-    x_shift           = delta_x,
-    y_shift           = delta_y,
-    z_desired         = z_height,
-    fixed_header_path = fixed_header_path,
-    bed_center_x      = override_bed_center_x,
-    bed_center_y      = override_bed_center_y,
-    nozzle_offset     = nozzle_offset,
-    fixed_e           = fixed_extrusion,
-    use_fixed_e       = use_fixed_extrusion,
-    c_sign            = c_sign,
-    b_sign            = b_sign,
-    machine_side_sign = machine_side_sign,
-    safety_limits     = safety_limits,
-    machine_z_lift    = machine_z_lift,
-    use_conical_z_backtransform = use_conical_z_backtransform,
-    recalculate_extrusion = recalculate_extrusion,
-    extrusion_multiplier = extrusion_multiplier,
-)
+if USE_PLANAR_FOUNDATION:
+    backtransform_and_stitch_two_gcodes(
+        planar_gcode_path=planar_gcode_path,
+        upper_gcode_path=upper_gcode_path,
+        output_dir=dir_backtransformed,
+        cone_type=transformation_type,
+        cone_angle_deg=cone_angle_degrees,
+        maximal_length=max_length,
+        planar_first_layer_height=PLANAR_FIRST_LAYER_HEIGHT,
+        interface_gap=INTERFACE_GAP,
+        transition_lift_mm=TRANSITION_LIFT_MM,
+        transition_feedrate=TRANSITION_FEEDRATE,
+        bed_center_x=override_bed_center_x,
+        bed_center_y=override_bed_center_y,
+        nozzle_offset=nozzle_offset,
+        fixed_e=fixed_extrusion,
+        use_fixed_e=use_fixed_extrusion,
+        recalculate_extrusion=recalculate_extrusion,
+        extrusion_multiplier=extrusion_multiplier,
+        c_sign=c_sign,
+        b_sign=b_sign,
+        machine_side_sign=machine_side_sign,
+        safety_limits=safety_limits,
+        machine_z_lift=machine_z_lift,
+    )
+else:
+    backtransform_file(
+        path=file_path,
+        output_dir=dir_backtransformed,
+        cone_type=transformation_type,
+        cone_angle_deg=cone_angle_degrees,
+        maximal_length=max_length,
+        x_shift=delta_x,
+        y_shift=delta_y,
+        z_desired=z_height,
+        fixed_header_path=fixed_header_path,
+        bed_center_x=override_bed_center_x,
+        bed_center_y=override_bed_center_y,
+        nozzle_offset=nozzle_offset,
+        fixed_e=fixed_extrusion,
+        use_fixed_e=use_fixed_extrusion,
+        c_sign=c_sign,
+        b_sign=b_sign,
+        machine_side_sign=machine_side_sign,
+        safety_limits=safety_limits,
+        machine_z_lift=machine_z_lift,
+        use_conical_z_backtransform=use_conical_z_backtransform,
+        recalculate_extrusion=recalculate_extrusion,
+        extrusion_multiplier=extrusion_multiplier,
+    )
