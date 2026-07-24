@@ -1,13 +1,11 @@
 import argparse
 import os
-import random
 import numpy as np
 import trimesh
-
-# Ensure local module import from the SupportGen directory.
+import MeshCheck
 import sys
-
 import vispy
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from FindSupportFaces import load_mesh, find_support_faces
@@ -22,7 +20,7 @@ def parse_center(center_string):
     return np.array(values, dtype=float)
 
 
-def create_triangular_support(mesh, face_index, bottom_z, radius):
+def create_support(mesh, face_index, bottom_z, radius):
     centroid = mesh.triangles_center[face_index].copy()
     origin = centroid + np.array([0.0, 0.0, 0.0], dtype=float)
     direction = np.array([0.0, 0.0, -1.0], dtype=float)
@@ -42,7 +40,7 @@ def create_triangular_support(mesh, face_index, bottom_z, radius):
             support_end_z = max(bottom_z, locations[mask][nearest, 2] + .1)
 
     support_height = origin[2] - support_end_z
-    if support_height <= 15:
+    if support_height <= 5:
         return None
 
     support = trimesh.creation.cylinder(radius=radius, height=support_height, sections=16)
@@ -100,7 +98,7 @@ def build_supports(mesh, face_indices, radius=None, adjustment=.2):
         radius = .67
     supports = []
     for face_index in face_indices:
-        support = create_triangular_support(mesh, int(face_index), bottom_z, radius)
+        support = create_support(mesh, int(face_index), bottom_z, radius)
         if support is not None:
             supports.append(support)
     supports = trimesh.util.concatenate(supports)
@@ -148,14 +146,15 @@ def main():
     parser.add_argument('--offset', type=float, default=.2, help='Offset between supports and original mesh.')
     args = parser.parse_args()
 
-    mesh = load_mesh(args.mesh_path)
+    mesh = MeshCheck.load_mesh(args.mesh_path)
 
     center = parse_center(args.center)
     print(f"Loaded mesh from {args.mesh_path} with {len(mesh.faces)} faces and {len(mesh.vertices)} vertices.")
     print(f"{mesh.is_watertight}")
 
     start = trimesh.util.time.time()
-    support_faces = find_support_faces(mesh, threshold=args.threshold, max_count=args.max_count, center=center)
+    # support_faces = find_support_faces(mesh, threshold=args.threshold, max_count=args.max_count, center=center)
+    support_faces = MeshCheck.main()
     support_faces = np.asarray(support_faces, dtype=int)
     print(f"Found {len(support_faces)} support faces: {support_faces}")
 

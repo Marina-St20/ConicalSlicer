@@ -37,7 +37,7 @@ def load_mesh(path):
     return mesh
 
 def vertical_scan():
-    mesh = load_mesh('../Tentacle_Remesh.stl')
+    mesh = load_mesh('../Earless_Remesh.stl')
     mesh_filter = load_mesh('../Filter_Cone_30.stl')
 
     extents = mesh.extents
@@ -104,16 +104,16 @@ def vertical_scan():
     mask = pos[:,2] > 1
     origins = origins[mask]
     # Pointed towards center
-    normals = mesh.face_normals[origins]
-    pos = mesh.triangles_center[origins]
-    dots = []
-    for i in range(len(pos)):
-        loc = pos[i] - center 
-        loc[2] = 0
-        dots.append(np.dot(normals[i] / np.linalg.norm(normals[i]), loc / np.linalg.norm(loc)))
-    print(f"{dots}")
-    mask = np.where(np.array(dots) <= 0)
-    origins = origins[mask]
+    # normals = mesh.face_normals[origins]
+    # pos = mesh.triangles_center[origins]
+    # dots = []
+    # for i in range(len(pos)):
+    #     loc = pos[i] - center 
+    #     loc[2] = 0
+    #     dots.append(np.dot(normals[i] / np.linalg.norm(normals[i]), loc / np.linalg.norm(loc)))
+    # print(f"{dots}")
+    # mask = np.where(np.array(dots) <= 0.2)
+    # origins = origins[mask]
     # Grouping
     pos = mesh.triangles_center
     groups = np.array(list(combinations(origins, 2)))
@@ -144,7 +144,7 @@ def vertical_scan():
 
                 
     
-    # show_regions(mesh, origins)
+    show_regions(mesh, origins)
     print(f"{len(origins)} support points found.")
     return np.array(origins, int)
 
