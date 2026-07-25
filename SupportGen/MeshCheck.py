@@ -36,9 +36,16 @@ def load_mesh(path):
     print(f"{mesh.bounding_box.extents}")
     return mesh
 
-def vertical_scan():
-    mesh = load_mesh('../Earless_Remesh.stl')
-    mesh_filter = load_mesh('../Filter_Cone_30.stl')
+def vertical_scan(
+        mesh,
+        filter_path,
+        center=None,
+        step=None,
+        show_result=False
+):
+    if not isinstance(mesh, trimesh.Trimesh):
+        mesh = load_mesh(mesh)
+    mesh_filter = load_mesh(filter_path)
 
     extents = mesh.extents
     max_scale = max(extents[0] * np.reciprocal(mesh_filter.extents[0]),
@@ -46,12 +53,14 @@ def vertical_scan():
                       extents[2] * np.reciprocal(mesh_filter.extents[2]) * 2)
     max_scale *= 1.01
     scale = np.diag([max_scale,max_scale,max_scale,1])
-    center = mesh.center_mass
+    if center is None:
+        center = mesh.center_mass
     center[2] = 0
     scale[:, 3] = np.append(center-mesh_filter.center_mass,1)
     scale[:, 3] += [0,0,-mesh_filter.extents[2]*scale[2,2],0]
     mesh_filter.apply_transform(scale)
-    step = .1
+    if step is None:
+        step = .1
     step_num = np.floor(mesh.extents[2] * 2 / step).astype(int)
     manager = trimesh.collision.CollisionManager()
     manager.add_object('mesh', mesh)
@@ -103,7 +112,8 @@ def vertical_scan():
     pos = mesh.triangles_center[origins]
     mask = pos[:,2] > 1
     origins = origins[mask]
-    # Pointed towards center
+
+    # Pointed towards center filter
     # normals = mesh.face_normals[origins]
     # pos = mesh.triangles_center[origins]
     # dots = []
@@ -114,6 +124,7 @@ def vertical_scan():
     # print(f"{dots}")
     # mask = np.where(np.array(dots) <= 0.2)
     # origins = origins[mask]
+
     # Grouping
     pos = mesh.triangles_center
     groups = np.array(list(combinations(origins, 2)))
@@ -143,8 +154,8 @@ def vertical_scan():
         origins = np.setdiff1d(roots, children, assume_unique=True)
 
                 
-    
-    show_regions(mesh, origins)
+    if show_result:
+        show_regions(mesh, origins)
     print(f"{len(origins)} support points found.")
     return np.array(origins, int)
 
@@ -177,7 +188,7 @@ def show_regions(mesh, face_indices=None, color=[1, 0, 0, 1], colors=None):
 
 def main():
     start = time.perf_counter()
-    origins = vertical_scan()
+    origins = vertical_scan('../Earless_Remesh.stl', '../Filter_Cone_30.stl')
     end = time.perf_counter()
     print(f"{end-start} seconds")
     return origins
