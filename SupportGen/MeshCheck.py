@@ -1,7 +1,10 @@
 from itertools import combinations
 import time
 import numpy as np
+import pymeshlab
 import trimesh
+
+pymeshlab.AbsoluteValue = pymeshlab.PureValue
 
 def load_mesh(path):
     mesh = trimesh.load_mesh(path, process=True)
@@ -37,14 +40,30 @@ def load_mesh(path):
     return mesh
 
 def vertical_scan(
-        mesh,
+        mesh_in,
         filter_path,
         center=None,
         step=None,
+        remesh_detail=.5,
         show_result=False
 ):
-    if not isinstance(mesh, trimesh.Trimesh):
-        mesh = load_mesh(mesh)
+    if not isinstance(mesh_in, trimesh.Trimesh):
+        mesh_in = load_mesh(mesh_in)
+
+    # Remesh copy for higher consistency with detailed meshes.
+    ml_mesh = pymeshlab.Mesh(vertex_matrix=mesh_in.vertices, face_matrix=mesh_in.faces)
+    ms = pymeshlab.MeshSet()
+    ms.add_mesh(ml_mesh)
+    ms.meshing_isotropic_explicit_remeshing(
+        targetlen=pymeshlab.AbsoluteValue(remesh_detail),
+        iterations=5,
+        adaptive=False,
+        featuredeg=40
+    )
+    out_verts = ms.current_mesh().vertex_matrix()
+    out_faces = ms.current_mesh().face_matrix()
+    mesh = trimesh.Trimesh(vertices=out_verts, faces=out_faces)
+    
     mesh_filter = load_mesh(filter_path)
 
     extents = mesh.extents
@@ -126,37 +145,41 @@ def vertical_scan(
     # origins = origins[mask]
 
     # Grouping
-    pos = mesh.triangles_center
-    groups = np.array(list(combinations(origins, 2)))
-    distances = [[] for _ in range(len(pos))]
-    roots = np.array([], int)
-    dist_threshold = 5
-    if (len(origins) > 1):
-        for a, b in groups:
-            dist = np.linalg.norm(pos[a] - pos[b])
-            distances[a].append([b, dist])
-            distances[b].append([a, dist])
-        groups = [[] for _ in range(len(pos))]
-        for i in range(len(distances)):
-            pairs = np.array(distances[i])
-            if (len(pairs) > 0):
-                mask = []
-                for j in range(len(pairs)):
-                    pair = pairs[j]
-                    if (np.abs(pair[1]) < dist_threshold and 
-                        np.linalg.norm(pos[i] - center) - np.linalg.norm(pos[int(pair[0])] - center) < 0):
-                        mask.append(j)
-                pairs = pairs[mask]
-                groups[i] = [i,pairs[:,0].astype(int)]
-        filtered = list(filter(None, groups))
-        roots = np.array([chain[0] for chain in filtered], dtype=int)
-        children = np.concatenate([chain[1] for chain in filtered], dtype=int)
-        origins = np.setdiff1d(roots, children, assume_unique=True)
+    # pos = mesh.triangles_center
+    # groups = np.array(list(combinations(origins, 2)))
+    # distances = [[] for _ in range(len(pos))]
+    # roots = np.array([], int)
+    # dist_threshold = 5
+    # if (len(origins) > 1):
+    #     for a, b in groups:
+    #         dist = np.linalg.norm(pos[a] - pos[b])
+    #         distances[a].append([b, dist])
+    #         distances[b].append([a, dist])
+    #     groups = [[] for _ in range(len(pos))]
+    #     for i in range(len(distances)):
+    #         pairs = np.array(distances[i])
+    #         if (len(pairs) > 0):
+    #             mask = []
+    #             for j in range(len(pairs)):
+    #                 pair = pairs[j]
+    #                 if (np.abs(pair[1]) < dist_threshold and 
+    #                     np.linalg.norm(pos[i] - center) - np.linalg.norm(pos[int(pair[0])] - center) < 0):
+    #                     mask.append(j)
+    #             pairs = pairs[mask]
+    #             groups[i] = [i,pairs[:,0].astype(int)]
+    #     filtered = list(filter(None, groups))
+    #     roots = np.array([chain[0] for chain in filtered], dtype=int)
+    #     children = np.concatenate([chain[1] for chain in filtered], dtype=int)
+    #     origins = np.setdiff1d(roots, children, assume_unique=True)
 
-                
-    if show_result:
-        show_regions(mesh, origins)
+    
+    locs = mesh.triangles_center[origins]
+    print(f"{locs}")
+    origins,_,ids = mesh_in.nearest.on_surface(locs)
+    if not show_result:
+        show_regions(mesh_in, ids)
     print(f"{len(origins)} support points found.")
+
     return np.array(origins, int)
 
 def build_adjacency(mesh):
@@ -188,7 +211,7 @@ def show_regions(mesh, face_indices=None, color=[1, 0, 0, 1], colors=None):
 
 def main():
     start = time.perf_counter()
-    origins = vertical_scan('../Earless_Remesh.stl', '../Filter_Cone_30.stl')
+    origins = vertical_scan('../3DBenchy_Remesh.stl', '../Filter_Cone_30.stl')
     end = time.perf_counter()
     print(f"{end-start} seconds")
     return origins
