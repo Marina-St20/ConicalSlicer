@@ -174,13 +174,12 @@ def vertical_scan(
 
     
     locs = mesh.triangles_center[origins]
-    print(f"{locs}")
     origins,_,ids = mesh_in.nearest.on_surface(locs)
-    if not show_result:
+    if show_result:
         show_regions(mesh_in, ids)
     print(f"{len(origins)} support points found.")
 
-    return np.array(origins, int)
+    return np.array(ids, int)
 
 def build_adjacency(mesh):
     if len(mesh.face_adjacency) == 0:
