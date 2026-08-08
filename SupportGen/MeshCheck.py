@@ -36,7 +36,6 @@ def load_mesh(path):
         mesh.merge_vertices(True, True)
         trimesh.repair.fill_holes(mesh)
         mesh = trimesh.Trimesh(vertices=mesh.vertices, faces=mesh.faces, validate=True)
-    print(f"{mesh.bounding_box.extents}")
     return mesh
 
 def vertical_scan(
@@ -132,7 +131,7 @@ def vertical_scan(
     mask = pos[:,2] > 1
     origins = origins[mask]
 
-    # Pointed towards center filter
+    # Pointed towards center filter(ish)
     # normals = mesh.face_normals[origins]
     # pos = mesh.triangles_center[origins]
     # dots = []
