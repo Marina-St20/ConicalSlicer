@@ -1375,7 +1375,7 @@ def remove_out_of_bounds_nonprint_moves(
 
 def clean_final_gcode_for_4axis_first_print(
     gcode_string,
-    max_feedrate_print=3000.0, # 3000.0
+    max_feedrate_print=1260.0, # 3000.0
     max_feedrate_travel=3000.0,# 3000.0
     comment_removed_lines=True,
 ):
@@ -2650,7 +2650,7 @@ def backtransform_file(
     print("Cleaning final G-code for first 4-axis hardware test...")
     data_bt_string = clean_final_gcode_for_4axis_first_print(
         data_bt_string,
-        max_feedrate_print=3000.0,
+        max_feedrate_print=1260.0,
         max_feedrate_travel=3000.0,
         comment_removed_lines=False,
     )
@@ -2786,7 +2786,7 @@ def backtransform_file(
 # Parameters
 # ---------------------------------------------------------------
 
-file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_uhhh_30deg_transformed_PLA_1h28m.gcode"
+file_path           = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\E_Safe_Polar_d20_medium_30deg_transformed_PLA_32m30s.gcode"
 dir_backtransformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\DeformedGcode"
 fixed_header_path   = FIXED_HEADER_PATH   # path to HEADERBLOCKSTART.txt
 
