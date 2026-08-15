@@ -30,7 +30,7 @@ def generate(
     padding = 10
     pitch = .2
     buffer = 1
-    dilations = 2
+    dilations = int(base_radius / step_size)
 
     # Voxelize for pathfinding algorithm
     print(f"Voxelizing...")
@@ -39,8 +39,10 @@ def generate(
     padded = np.pad(voxels.matrix, ((padding,padding),(padding,padding),(0,0)), "constant", constant_values=0)
     transform = voxels.transform.copy()
     offset = padding * pitch
+    # offset_z = 2 * pitch
     transform[0, 3] -= offset
     transform[1, 3] -= offset
+    # transform[2, 3] -= offset_z
     voxels = trimesh.voxel.VoxelGrid(padded, transform)
     # Mask to empty space minus a buffer
     mask = voxels.matrix.astype(bool)
@@ -60,8 +62,12 @@ def generate(
     plotter.add_mesh(cloud, scalars="Z Depth", cmap = "plasma", render_points_as_spheres=True, point_size = 5)
     plotter.add_mesh(surface, opacity=0.7, style="surface", color="light_gray")
     
-    
-    
+    # Preset central pillar in nodes for conic prints
+    central_pillar = []
+    for i in range(0, int(grid_origin[2]) + 1, 1):
+        central_pillar.append((0, 0, i))
+    nodes.update(central_pillar)
+
     # Map roots to nodes
     print(f"Building support paths...")
     for root in roots:
@@ -85,17 +91,18 @@ def generate(
         if path is None:
             continue
         paths.append(path)
-    nodes = np.array(list(nodes))
-    for i, node in enumerate(nodes):
+    node_arr = np.array(list(nodes))
+    for i, node in enumerate(node_arr):
         scaled = np.asarray(node)*pitch + grid_origin
         x, y, z = scaled
-        nodes[i] = (x, y, z)
+        node_arr[i] = (x, y, z)
         plotter.add_mesh(pv.Sphere(radius=.2, center=(x, y, z)), color="red", opacity=1)
     print(f"Drawing grid")
     plotter.show_grid()
     plotter.show()
     print(f"Building the support mesh...")
-    supports = wrap(nodes, inflated_mask.shape, step_size, tip_radius, base_radius)
+    supports = wrap(nodes, inflated_mask.shape, pitch, tip_radius, base_radius)
+    supports.apply_translation(grid_origin)
     supports.export(output_path)
     
 
@@ -173,7 +180,9 @@ def wrap(nodes, grid_shape, voxel_size=1, tradius=.4, bradius=4):
             mask[x, y, z] = True
         
     # Distance Field shaping
-    df = nd.distance_transform_edt(~mask)
+    mask = ~mask
+    np.pad(mask, pad_width=10, mode='constant', constant_values=0)
+    df = nd.distance_transform_edt(mask)
     indices = np.zeros(int(grid_shape[2]))
     z_height = np.arange(bradius, tradius, -(bradius - tradius) / max_z)
     radius_threshold = indices + np.pad(z_height, pad_width=(0, indices.shape[0] - z_height.shape[0]), mode='constant')
@@ -185,26 +194,104 @@ def wrap(nodes, grid_shape, voxel_size=1, tradius=.4, bradius=4):
 
     return supports
 
+def build_raft(mesh: trimesh.Trimesh, z_threshold=.01, extrude_height=2, show_voxels=False):
+    vertices = mesh.vertices[:, 2] < z_threshold
+    faces = vertices[mesh.faces].all(axis=1) & (mesh.face_normals[:, 2] < 0)
+    faces = mesh.faces[faces]
+    if len(faces) == 0:
+        raise ValueError("No faces found below the threshold with downward normals.")
+        
+    base = trimesh.Trimesh(vertices=mesh.vertices, faces=faces, process=False)
+    raft = trimesh.creation.extrude_triangulation(base.vertices[:, :2], base.faces, height=extrude_height)
+    raft = dilate(raft, 6, show_voxels=show_voxels)
+    raft.process(validate=True)
+    
+    return raft
+
+def dilate(mesh: trimesh.Trimesh, units=5, show_voxels=False):
+    pitch = .2
+    buffer = 1
+    dilations = int(units / pitch)
+    padding = dilations + 1
+    voxels = mesh.voxelized(pitch)
+
+    # Build clearance
+    padded = np.pad(voxels.matrix, ((padding,padding),(padding,padding),(padding,padding)), "constant", constant_values=0)
+    transform = voxels.transform.copy()
+    offset = padding * pitch
+    transform[0, 3] -= offset
+    transform[1, 3] -= offset
+    transform[2, 3] -= offset
+    voxels = trimesh.voxel.VoxelGrid(padded, transform)
+
+    # Mask to empty space minus a buffer
+    mask = voxels.matrix.astype(bool)
+    x,y,z = np.ogrid[-buffer:buffer+1,-buffer:buffer+1,-buffer:buffer+1]
+    # structure = x**2 + y**2 <= buffer**2
+    structure = nd.generate_binary_structure(2, 1)
+    grid = nd.binary_dilation(mask, structure, dilations, axes=(0, 1))
+    grid_origin = voxels.translation
+
+    # Distance Field shaping
+    np.pad(grid, pad_width=10, mode='constant', constant_values=0)
+    df = nd.distance_transform_edt(grid)
+    verts, faces, _, _ = skimage.measure.marching_cubes(
+        df, 0, spacing=(pitch, pitch, pitch))
+
+    # Draw grid for voxel visualization
+    if (show_voxels):
+        points = np.argwhere(grid == 1)
+        cloud = pv.PolyData(points * pitch + grid_origin)
+        cloud["Z Depth"] = points[:, 2]
+        surface = pv.wrap(mesh)
+        plotter = pv.Plotter()
+        plotter.add_mesh(cloud, scalars="Z Depth", cmap = "plasma", render_points_as_spheres=True, point_size = 1)
+        plotter.add_mesh(surface, opacity=1, style="surface", color="light_gray")
+        plotter.show()
+
+    flipped = faces.copy()
+    flipped[:, [0, 1]] = flipped[:, [1, 0]]
+
+    mesh = trimesh.Trimesh(verts, flipped)
+    mesh.apply_translation(grid_origin)
+    
+    return mesh
+    
 def main():
+    options = {
+        'mesh_path': {'help': 'Path to the mesh file to load.'},
+        'filter_path': {'help': 'Path to filter mesh.'},
+        'output_path': {'help': 'Path to output.'},
+        '--sensitivity': {'type': float, 'default': .5, 'help': 'Sensitivity, determined by remesh. Low values for high sensitivity, default is .5.'},
+        '--center': {'type': str, 'help': 'Optional center point as "x,y,z" passed to FindSupportFaces.py.'},
+        '--bradius': {'type': float, 'default': 4.0, 'help': 'Support base radius. Defaults to 4.0.'},
+        '--tradius': {'type': float, 'default': 0.4, 'help': 'Support tip radius. Defaults to 0.4.'},
+        '--offset': {'type': float, 'default': 0.2, 'help': 'Offset between supports and original mesh.'},
+        '--show_raft_cloud': {'type': bool, 'default': False, 'help': 'Show the raft voxel cloud for debugging.'},
+        '--show_raft': {'type': bool, 'default': False, 'help': 'Show the raft for debugging.'}
+    }
     parser = argparse.ArgumentParser(description='Generate supports for a mesh.')
-    parser.add_argument('mesh_path', help='Path to the mesh file to load.')
-    parser.add_argument('filter_path', help='Path to filter mesh.')
-    parser.add_argument('output_path', help='Path to output.')
-    parser.add_argument('--sensitivity', type=float, default=.5, help='Sensitivity, determined by remesh. Low values for high sensitivity, default is .5.')
-    parser.add_argument('--center', type=str, default=None, help='Optional center point as "x,y,z" passed to FindSupportFaces.py.')
-    parser.add_argument('--bradius', type=float, default=4, help='Support base radius. Defaults to 4.0.')
-    parser.add_argument('--tradius', type=float, default=.4, help='Support tip radius. Defaults to 0.4.')
-    parser.add_argument('--offset', type=float, default=.2, help='Offset between supports and original mesh.')
+    for arg, params in options.items():
+        parser.add_argument(arg, **params)
     args = parser.parse_args()
 
     print(f"Scanning...")
     mesh = MeshCheck.load_mesh(args.mesh_path)
+    raft = build_raft(mesh, z_threshold=.5, extrude_height=.6, show_voxels=args.show_raft_cloud)
+
+    # Check raft size and positioning
+    if (args.show_raft):
+        plotter = pv.Plotter()
+        plotter.add_mesh(mesh, opacity=0.7, style="surface", color="light_gray")
+        plotter.add_mesh(raft, opacity=0.7, style="surface", color="light_gray")
+        plotter.show()
+
     origins = MeshCheck.vertical_scan(mesh, args.filter_path, center=args.center, step=.1, remesh_detail=args.sensitivity)
     generate(
         mesh=mesh, 
         origins=origins, 
         output_path=args.output_path, 
-        step_size=.4, 
+        step_size=1, 
         tip_radius=args.tradius, 
         base_radius=args.bradius, 
     )
@@ -214,81 +301,27 @@ if __name__ == "__main__":
     main()
 
 
-## Test
-def wrap_paths_to_stl(global_tree_nodes, grid_shape, grid_origin, padding_cells=0, voxel_size=0.2, radius_bottom_mm=4.0, radius_top_mm=1.0, output_filename="tree_supports.stl"):
-    """
-    Generates perfectly tapered branches with guaranteed flat solid bottom caps
-    by building an explicit Signed Distance Field (SDF).
-    """
-    print(f"Initializing SDF Canvas matching array shape: {grid_shape}")
-    
-    # We initialize with a high positive value (representing empty space)
-    # The surface will be extracted exactly at 0.0
-    sdf_grid = np.ones(grid_shape, dtype=float) * 999.0
-    
-    max_z = grid_shape[2]
-    
-    print("Populating tapered volumetric fields around tree paths...")
-    # Loop over every node in your tree structure
-    for pt in global_tree_nodes:
-        cx, cy, cz = int(np.round(pt[0])), int(np.round(pt[1])), int(np.round(pt[2]))
-        
-        if not (0 <= cx < grid_shape[0] and 0 <= cy < grid_shape[1] and 0 <= cz < grid_shape[2]):
-            continue
-            
-        # Calculate the target real-world radius for this specific node's height
-        # Linear interpolation from narrow tips at top to thick trunks at the floor (Z=0)
-        z_progress = cz / max_z
-        current_radius_mm = radius_bottom_mm - (z_progress * (radius_bottom_mm - radius_top_mm))
-        
-        # Convert radius to voxel units
-        voxel_radius = current_radius_mm / voxel_size
-        int_rad = int(np.ceil(voxel_radius))
-        
-        # Define a tight local bounding box around this single node to stay ultra-fast
-        x_min, x_max = max(0, cx - int_rad), min(grid_shape[0], cx + int_rad + 1)
-        y_min, y_max = max(0, cy - int_rad), min(grid_shape[1], cy + int_rad + 1)
-        z_min, z_max = max(0, cz - int_rad), min(grid_shape[2], cz + int_rad + 1)
-        
-        # Generate local coordinate grids
-        x_range = np.arange(x_min, x_max)
-        y_range = np.arange(y_min, y_max)
-        z_range = np.arange(z_min, z_max)
-        
-        # Compute 3D distances from the center node
-        xx, yy, zz = np.meshgrid(x_range - cx, y_range - cy, z_range - cz, indexing='ij')
-        distances = np.sqrt(xx**2 + yy**2 + zz**2)
-        
-        # --- THE TAPER & HOLLOW/SOLID SIGNED FIELD MATH ---
-        # Distance minus radius creates a standard SDF where inside the branch is negative,
-        # outside is positive, and the outer skin is EXACTLY 0.0
-        local_sdf = distances - voxel_radius
-        
-        # Merge this node's sphere into the global canvas using a boolean minimum operator
-        sdf_grid[x_min:x_max, y_min:y_max, z_min:z_max] = np.minimum(
-            sdf_grid[x_min:x_max, y_min:y_max, z_min:z_max], 
-            local_sdf
-        )
+
 
     # --- THE SOLID BOTTOM CAP FIX ---
     # To force Marching Cubes to cleanly seal the bottom of the trunks, 
     # we manually clamp the SDF values at Z=0 to positive boundaries, 
     # forcing the mesh generator to wrap a flat, horizontal floor cap.
-    sdf_grid[:, :, 0] = np.maximum(sdf_grid[:, :, 0], 0.0)
+    # sdf_grid[:, :, 0] = np.maximum(sdf_grid[:, :, 0], 0.0)
 
-    print("Running Marching Cubes to extract the smooth, tapered shell...")
-    # Tracing level=0.0 extracts the perfect outer skin layer of the tapered tree
-    verts, faces, normals, values = skimage.measure.marching_cubes(
-        volume=sdf_grid, 
-        level=0.0, 
-        spacing=(voxel_size, voxel_size, voxel_size)
-    )
+    # print("Running Marching Cubes to extract the smooth, tapered shell...")
+    # # Tracing level=0.0 extracts the perfect outer skin layer of the tapered tree
+    # verts, faces, normals, values = skimage.measure.marching_cubes(
+    #     volume=sdf_grid, 
+    #     level=0.0, 
+    #     spacing=(voxel_size, voxel_size, voxel_size)
+    # )
     
-    support_mesh = trimesh.Trimesh(vertices=verts, faces=faces, vertex_normals=normals)
+    # support_mesh = trimesh.Trimesh(vertices=verts, faces=faces, vertex_normals=normals)
     
-    # Strip horizontal padding from vertices, leave Z at 0
-    padding_mm = padding_cells * voxel_size
-    support_mesh.apply_translation((-padding_mm, -padding_mm, 0.0))
+    # # Strip horizontal padding from vertices, leave Z at 0
+    # padding_mm = padding_cells * voxel_size
+    # support_mesh.apply_translation((-padding_mm, -padding_mm, 0.0))
     
-    # Snap back to real-world model coordinates
-    support_mesh.apply_translation(grid_origin)
+    # # Snap back to real-world model coordinates
+    # support_mesh.apply_translation(grid_origin)
