@@ -109,10 +109,8 @@ def vertical_scan(
                         face[1][0] = True
                 if not stable and j == 1:
                     component_bases.append(u)
-        if i % (step_num // 10) == 0:
-            percent = np.floor(i / step_num * 100) + 1
-            if percent != 0:
-                print(f"{percent}%")
+        percent = np.floor((i / step_num * 100)).astype(int)
+        print(f"{percent}%\r", end="")
         
         # To check end-result alignment
         # if (i == step_num - 1):
@@ -131,6 +129,7 @@ def vertical_scan(
     mask = pos[:,2] > 1
     origins = origins[mask]
 
+# region Unused Filters
     # Pointed towards center filter(ish)
     # normals = mesh.face_normals[origins]
     # pos = mesh.triangles_center[origins]
@@ -170,7 +169,7 @@ def vertical_scan(
     #     roots = np.array([chain[0] for chain in filtered], dtype=int)
     #     children = np.concatenate([chain[1] for chain in filtered], dtype=int)
     #     origins = np.setdiff1d(roots, children, assume_unique=True)
-
+# endregion
     
     locs = mesh.triangles_center[origins]
     origins,_,ids = mesh_in.nearest.on_surface(locs)
