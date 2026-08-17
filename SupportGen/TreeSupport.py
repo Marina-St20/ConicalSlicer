@@ -103,9 +103,9 @@ def generate(
 
     # Reset spacing and clear collisions
     xy_diff = .0005
-    scale = [1+xy_diff, 1+xy_diff, find_scale(mesh, pitch)[2]]
+    scale = [1+xy_diff, 1+xy_diff, find_scale(mesh, 2*pitch)[2]]
     supports = diff(mesh, supports, scale)
-    scale = [1-xy_diff, 1-xy_diff, find_scale(mesh, -pitch)[2]]
+    scale = [1-xy_diff, 1-xy_diff, find_scale(mesh, -2*pitch)[2]]
     supports = diff(mesh, supports, scale)
 
     return supports
@@ -218,16 +218,9 @@ def adjust_raft(mesh: trimesh.Trimesh, raft: trimesh.Trimesh, supports: trimesh.
     z_shift = raft.extents[2] + gap
     mesh.apply_translation([0, 0, z_shift])        
     mesh = trimesh.util.concatenate(mesh, raft)
-    mesh.apply_translation([0, 0, z_shift])
-    support_extents = supports.extents
-    scale = find_scale(supports, z_shift)
-    com = supports.center_mass
-    supports.apply_translation([-com[0], -com[1], 0])
-    transform = np.diag([1, 1, scale[2], 1])
-    supports.apply_transform(transform)
-    offsets = [0,0, (supports.extents[2] - support_extents[2]) - gap] 
-    supports.apply_translation(offsets)
-    supports.apply_translation([-com[0], -com[1], 0])
+    mask = supports.vertices[:, 2] <= supports.bounds[0][2] + .01
+    supports.vertices[mask, 2] = -z_shift
+    supports.apply_translation([0, 0, raft.extents[2]])
     return (mesh, supports)
 
 def dilate(mesh: trimesh.Trimesh, units=5, pitch=.2, show_voxels=False):
@@ -331,6 +324,7 @@ def main():
     # Union to merge with raft, if it exists
     mesh = trimesh.boolean.union([mesh, supports], engine='manifold')
     mesh.process(True)
+    mesh.show()
     mesh.export(args.output_path)
     print(f"Complete.")
 
