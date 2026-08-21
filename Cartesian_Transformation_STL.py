@@ -222,7 +222,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
     os.makedirs(output_dir, exist_ok=True)
     base = os.path.basename(path)
     name, ext = os.path.splitext(base)
-    file_name = f"E_Safe_Polar_{name}_{cone_angle_deg}deg_transformed{ext}"
+    file_name = f"Aug_Polar_{name}_{cone_angle_deg}deg_transformed{ext}"
     output_path = os.path.join(output_dir, file_name)
     my_mesh_transformed.save(output_path)
 
@@ -236,11 +236,11 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # ---------------------------------------------------------------
 
 #file_path = r"C:\Professional\3D4E\5AxisPrinter\ConicalSlicing\ASTM_Dogbone.stl"
-file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\d20_medium.stl"
+file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\mini dragon.stl"
 dir_transformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 transformation_type = 'outward'       # 'inward' or 'outward'
 number_iterations = 0                # mesh refinement iterations
-cone_angle_degrees = 30
+cone_angle_degrees = 60
 
 transformation_STL_file(
     path=file_path,

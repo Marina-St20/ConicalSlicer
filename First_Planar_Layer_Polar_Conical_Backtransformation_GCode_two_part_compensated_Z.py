@@ -3193,8 +3193,8 @@ def backtransform_and_stitch_two_gcodes(
 USE_PLANAR_FOUNDATION = True
 
 # Used only when USE_PLANAR_FOUNDATION is True.
-planar_gcode_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\PLANAR_Dragon_slab_0.200mm_PLA_7m0s.gcode"
-upper_gcode_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\CONICAL_Dragon_upper_30deg_PLA_2h4m.gcode"
+planar_gcode_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\PLANAR_block U_slab_0.200mm_PLA_6m43s.gcode"
+upper_gcode_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\CONICAL_block U_upper_30deg_PLA_30m11s.gcode"
 
 # Used only when USE_PLANAR_FOUNDATION is False.
 file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\SlicedTransformedGcode\FULL_CONICAL_MODEL.gcode"

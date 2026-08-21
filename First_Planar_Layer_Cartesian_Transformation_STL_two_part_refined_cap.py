@@ -407,7 +407,7 @@ def transformation_STL_file(path, output_dir, cone_type, nb_iterations, cone_ang
 # Parameters
 # ---------------------------------------------------------------
 
-file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\Dragon.stl"
+file_path = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\block U.stl"
 dir_transformed = r"C:\Users\canca\Documents\Conical Slicer Repo\ConicalSlicer\TransformedFiles"
 
 transformation_type = "outward"       # "inward" or "outward"
